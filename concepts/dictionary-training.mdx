@@ -1,0 +1,229 @@
+---
+title: Dictionary Training
+description: How dictionary training works for compressing small data with Zstandard
+---
+
+Dictionary training is a powerful feature in Zstandard designed to dramatically improve compression ratios for small data, while simultaneously providing faster compression and decompression speeds.
+
+## The Small Data Problem
+
+The smaller the amount of data to compress, the more difficult it is to compress. This problem is common to all compression algorithms.
+
+**Why?** Compression algorithms learn from past data how to compress future data. But at the beginning of a new data set, there is no "past" to build upon.
+
+From `README.md:86-87`
+
+## How Dictionary Training Works
+
+Zstandard offers a **training mode** which can be used to tune the algorithm for a selected type of data by providing it with a few samples (one file per sample). The result of this training is stored in a file called a "dictionary", which must be loaded before compression and decompression.
+
+From `README.md:88-90`
+
+### When to Use Dictionaries
+
+Dictionary training works best when:
+
+- There is **correlation in a family of small data** samples
+- Each data sample is roughly **1KB or similar small size**
+- You have multiple samples of the same data type
+
+<Warning>
+There is no universal dictionary. The more data-specific a dictionary is, the more efficient it is. Deploy one dictionary per type of data for greatest benefits.
+</Warning>
+
+From `README.md:102-103`
+
+### Effectiveness Range
+
+Dictionary gains are mostly effective in the **first few KB**. Then, the compression algorithm will gradually use previously decoded content to better compress the rest of the file.
+
+From `README.md:104-105`
+
+## Training a Dictionary
+
+### Step 1: Create the Dictionary
+
+Use the `zstd --train` command with a set of training samples:
+
+```bash
+zstd --train FullPathToTrainingSet/* -o dictionaryName
+```
+
+From `README.md:110` and `programs/README.md:122`
+
+### Advanced Training Options
+
+The CLI provides several training algorithms:
+
+#### Cover Algorithm
+
+```bash
+zstd --train-cover=k=1024,d=8,steps=256 samples/* -o dict
+```
+
+#### Fast Cover Algorithm
+
+```bash
+zstd --train-fastcover=k=1024,d=8,f=20,steps=256,accel=5 samples/* -o dict
+```
+
+#### Legacy Algorithm
+
+```bash
+zstd --train-legacy=s=9 samples/* -o dict
+```
+
+From `programs/README.md:239-245`
+
+### Dictionary Size Limits
+
+You can control the maximum dictionary size:
+
+```bash
+zstd --train samples/* -o dict --maxdict=65536
+```
+
+Default maximum dictionary size is **112640 bytes**.
+
+From `programs/README.md:246`
+
+## Using Dictionaries
+
+### Step 2: Compress with Dictionary
+
+```bash
+zstd -D dictionaryName FILE
+```
+
+From `README.md:114`
+
+### Step 3: Decompress with Dictionary
+
+```bash
+zstd -D dictionaryName --decompress FILE.zst
+```
+
+From `README.md:118`
+
+## Programming API
+
+### Simple Dictionary Compression
+
+```c
+// Load dictionary
+size_t dictSize;
+void* const dictBuffer = mallocAndLoadFile_orDie(dictFileName, &dictSize);
+ZSTD_CDict* const cdict = ZSTD_createCDict(dictBuffer, dictSize, cLevel);
+
+// Compress using dictionary
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+size_t const cSize = ZSTD_compress_usingCDict(
+    cctx, cBuff, cBuffSize, 
+    fBuff, fSize, 
+    cdict
+);
+
+// Cleanup
+ZSTD_freeCDict(cdict);
+free(dictBuffer);
+```
+
+From `examples/dictionary_compression.c:28-36,53-56`
+
+### Bulk Processing
+
+When compressing multiple messages or blocks using the same dictionary, it's recommended to digest the dictionary only once:
+
+```c
+ZSTD_CDict* ZSTD_createCDict(
+    const void* dictBuffer, 
+    size_t dictSize,
+    int compressionLevel
+);
+```
+
+<Tip>
+`ZSTD_CDict` can be created once and shared by multiple threads concurrently, since its usage is read-only.
+</Tip>
+
+From `lib/zstd.h:987-992`
+
+### Dictionary Decompression
+
+```c
+ZSTD_DDict* ZSTD_createDDict(const void* dictBuffer, size_t dictSize);
+
+size_t ZSTD_decompress_usingDDict(
+    ZSTD_DCtx* dctx,
+    void* dst, size_t dstCapacity,
+    const void* src, size_t srcSize,
+    const ZSTD_DDict* ddict
+);
+```
+
+From `lib/zstd.h:1023,1030-1036`
+
+## Performance Gains
+
+Real-world example using the `github-users` sample set (roughly 10K records of ~1KB each):
+
+### Compression Ratio Improvements
+
+Dictionary compression achieves dramatically better compression ratios on small data compared to without dictionary.
+
+### Speed Improvements
+
+These compression gains are achieved while simultaneously providing **faster** compression and decompression speeds.
+
+From `README.md:100`
+
+<Note>
+The `dictBuffer` can be released after `ZSTD_CDict` creation, because its content is copied within CDict.
+</Note>
+
+From `lib/zstd.h:993`
+
+## Dictionary ID
+
+You can control the dictionary ID in the frame header:
+
+```bash
+zstd --train samples/* -o dict --dictID=12345
+```
+
+By default, a random dictionary ID is assigned.
+
+From `programs/README.md:247`
+
+### Querying Dictionary IDs
+
+```c
+unsigned ZSTD_getDictID_fromDict(const void* dict, size_t dictSize);
+unsigned ZSTD_getDictID_fromCDict(const ZSTD_CDict* cdict);
+unsigned ZSTD_getDictID_fromDDict(const ZSTD_DDict* ddict);
+unsigned ZSTD_getDictID_fromFrame(const void* src, size_t srcSize);
+```
+
+From `lib/zstd.h:1047,1053,1059,1071`
+
+## Command Line Dictionary Options
+
+In compression:
+
+```bash
+zstd FILE -D dictionaryName
+```
+
+In decompression:
+
+```bash
+zstd --decompress FILE.zst -D dictionaryName
+```
+
+In benchmark mode:
+
+```bash
+zstd -b -D dictionary files
+```
+
+From `programs/README.md:163,255`

@@ -1,0 +1,299 @@
+---
+title: "Language Bindings"
+description: "Zstandard bindings for Python, Java, Go, Rust, and other programming languages"
+---
+
+## Overview
+
+Zstandard is implemented as a C library, but language bindings are available for many popular programming languages. These bindings provide idiomatic APIs for each language while leveraging the performance of the native C implementation.
+
+## Official Implementations
+
+The reference implementation is provided as an open-source dual [BSD](https://github.com/facebook/zstd/blob/dev/LICENSE) OR [GPLv2](https://github.com/facebook/zstd/blob/dev/COPYING) licensed **C** library.
+
+<Card title="Reference C Library" icon="c" href="/integration/c-cpp">
+The official C implementation includes:
+- `libzstd` - Core compression/decompression library
+- `zstd` - Command-line utility
+- Complete API documentation in `lib/zstd.h`
+</Card>
+
+## Language Bindings Directory
+
+For projects requiring other programming languages, a comprehensive list of known ports and bindings is provided on the [Zstandard homepage](https://facebook.github.io/zstd/#other-languages).
+
+<Note>
+Language bindings are maintained by the community and may vary in features, performance, and API design. Always check the specific binding's documentation for details.
+</Note>
+
+## Finding Bindings
+
+The Zstandard homepage provides an up-to-date directory of bindings for:
+
+- **Python** - Multiple implementations available
+- **Java** - JNI bindings and pure Java implementations
+- **Go** - Native Go and CGo implementations
+- **Rust** - Safe Rust wrappers
+- **JavaScript/Node.js** - Native module bindings
+- **Ruby** - Gem packages
+- **PHP** - PECL extensions
+- **C#/.NET** - Managed wrappers
+- **Perl** - CPAN modules
+- **Haskell** - Hackage packages
+- **Lua** - LuaRocks modules
+- **Erlang/Elixir** - Hex packages
+- And many more...
+
+<Card title="Browse All Bindings" icon="globe" href="https://facebook.github.io/zstd/#other-languages">
+Visit the official Zstandard homepage for the complete list of language bindings and their current status.
+</Card>
+
+## Popular Bindings
+
+While the official list is maintained on the Zstandard homepage, here are some commonly used bindings:
+
+### Python
+
+Multiple Python packages are available providing different feature sets:
+
+- **python-zstandard** - Full-featured Python bindings
+- **zstd** - Simple compression/decompression interface
+
+### Java
+
+Java implementations include:
+
+- **zstd-jni** - JNI bindings to native library
+- Pure Java implementations for environments where native code isn't available
+
+### Go
+
+Go has several options:
+
+- CGo bindings for performance
+- Pure Go implementations for portability
+
+### Rust
+
+Rust bindings provide safe wrappers around the C library:
+
+- **zstd** crate on crates.io
+- Safe Rust API with zero-cost abstractions
+
+## Integration Approaches
+
+<CardGroup cols={2}>
+
+<Card title="Native Bindings" icon="bolt">
+Direct bindings to the C library provide maximum performance and feature completeness.
+
+**Pros:**
+- Best performance
+- Full feature support
+- Synchronized with C library updates
+
+**Cons:**
+- Requires native compilation
+- Platform-specific binaries
+</Card>
+
+<Card title="Pure Implementations" icon="code">
+Native language implementations without C dependencies.
+
+**Pros:**
+- No compilation required
+- Easy deployment
+- Platform-independent
+
+**Cons:**
+- May have limited features
+- Potentially slower
+- Separate maintenance
+</Card>
+
+</CardGroup>
+
+## FFI (Foreign Function Interface)
+
+For languages not listed on the official bindings page, you can create your own FFI wrapper to the C library:
+
+### Requirements
+
+1. **Install libzstd**: System-wide installation of the Zstandard library
+2. **FFI Support**: Your language must support calling C functions
+3. **Header Access**: Access to `zstd.h` for API definitions
+
+### Example Approach
+
+Most FFI implementations follow this pattern:
+
+1. Link to `libzstd.so` (Linux), `libzstd.dylib` (macOS), or `libzstd.dll` (Windows)
+2. Declare function signatures from `lib/zstd.h`
+3. Create idiomatic wrappers for your language
+4. Handle memory management appropriately
+
+<CodeGroup>
+
+```python Python ctypes Example
+import ctypes
+
+# Load library
+libzstd = ctypes.CDLL('libzstd.so')
+
+# Declare function
+libzstd.ZSTD_versionNumber.restype = ctypes.c_uint
+
+# Call function
+version = libzstd.ZSTD_versionNumber()
+print(f"Zstd version: {version}")
+```
+
+```ruby Ruby FFI Example
+require 'ffi'
+
+module Zstd
+  extend FFI::Library
+  ffi_lib 'zstd'
+  
+  attach_function :ZSTD_versionNumber, [], :uint
+end
+
+puts "Zstd version: #{Zstd.ZSTD_versionNumber}"
+```
+
+</CodeGroup>
+
+## Package Managers
+
+Many language-specific package managers include Zstandard bindings:
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install zstandard
+    # or
+    pip install zstd
+    ```
+  </Tab>
+  
+  <Tab title="JavaScript">
+    ```bash
+    npm install zstd-codec
+    # or
+    npm install @mongodb-js/zstd
+    ```
+  </Tab>
+  
+  <Tab title="Ruby">
+    ```bash
+    gem install zstd-ruby
+    ```
+  </Tab>
+  
+  <Tab title="Rust">
+    ```toml
+    # Cargo.toml
+    [dependencies]
+    zstd = "0.13"
+    ```
+  </Tab>
+  
+  <Tab title="Go">
+    ```bash
+    go get github.com/klauspost/compress/zstd
+    ```
+  </Tab>
+</Tabs>
+
+## Using Language Bindings
+
+### Common Features
+
+Most language bindings provide:
+
+- **Simple API**: One-shot compression/decompression
+- **Streaming API**: For large files or streams
+- **Dictionary Training**: Create custom dictionaries
+- **Dictionary Compression**: Use dictionaries for better compression
+- **Frame Parameters**: Access frame content size, checksums, etc.
+
+### Feature Compatibility
+
+When choosing a binding, verify:
+
+<Checklist>
+  <Check>Compression level support (including negative levels)</Check>
+  <Check>Streaming compression/decompression</Check>
+  <Check>Dictionary training and usage</Check>
+  <Check>Multithreading support</Check>
+  <Check>Content size in frame header</Check>
+  <Check>Checksums</Check>
+  <Check>Version compatibility with C library</Check>
+</Checklist>
+
+## Compatibility
+
+### Format Stability
+
+Zstandard's format is stable and documented in [RFC 8878](https://datatracker.ietf.org/doc/html/rfc8878). All compliant implementations can decompress data compressed by any other compliant implementation.
+
+<Note>
+Starting from v0.8.0, all versions of Zstandard produce frames compliant with the specification and are therefore compatible with each other.
+</Note>
+
+### Multiple Independent Implementations
+
+The stable format has enabled multiple independent implementations across different languages and platforms, all maintaining interoperability.
+
+## Best Practices
+
+<CardGroup cols={2}>
+
+<Card title="Use Official Bindings" icon="check-circle">
+When available, prefer bindings listed on the official Zstandard homepage for better maintenance and community support.
+</Card>
+
+<Card title="Check Version Support" icon="code-branch">
+Ensure the binding supports the Zstandard version and features you need.
+</Card>
+
+<Card title="Test Performance" icon="gauge-high">
+Benchmark different bindings if performance is critical - native bindings typically outperform pure implementations.
+</Card>
+
+<Card title="Verify Maintenance" icon="wrench">
+Check that the binding is actively maintained and compatible with recent Zstandard versions.
+</Card>
+
+</CardGroup>
+
+## Contributing Bindings
+
+If you've created a Zstandard binding for a language:
+
+1. Ensure compatibility with the Zstandard specification (RFC 8878)
+2. Include comprehensive tests
+3. Document the API clearly
+4. Submit your binding to be listed on the [Zstandard homepage](https://facebook.github.io/zstd/#other-languages)
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Official Bindings List" icon="list" href="https://facebook.github.io/zstd/#other-languages">
+Browse the complete list of available language bindings
+</Card>
+
+<Card title="C/C++ Integration" icon="code" href="/integration/c-cpp">
+Learn about the reference C implementation
+</Card>
+
+<Card title="Build Systems" icon="hammer" href="/integration/build-systems">
+Integrate the C library into your build system
+</Card>
+
+<Card title="Zstandard RFC" icon="book" href="https://datatracker.ietf.org/doc/html/rfc8878">
+Read the official format specification
+</Card>
+
+</CardGroup>

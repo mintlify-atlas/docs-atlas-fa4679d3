@@ -1,0 +1,151 @@
+---
+title: Compression Levels
+description: Understanding Zstandard compression levels 1-22, fast modes, and ultra modes
+---
+
+Zstandard supports a wide range of compression levels, from ultra-fast modes to maximum compression, allowing you to fine-tune the trade-off between speed and compression ratio.
+
+## Standard Compression Levels (1-19)
+
+The library supports regular compression levels from **1 up to 22**. Lower levels provide faster compression at the cost of compression ratio, while higher levels achieve better compression ratios at the cost of speed.
+
+### Default Compression Level
+
+The default compression level is **3** (`ZSTD_CLEVEL_DEFAULT`).
+
+```c
+#ifndef ZSTD_CLEVEL_DEFAULT
+#  define ZSTD_CLEVEL_DEFAULT 3
+#endif
+```
+
+You can also query the default level at runtime:
+
+```c
+int defaultLevel = ZSTD_defaultCLevel();  // Returns 3
+```
+
+### Setting Compression Levels
+
+#### Simple API
+
+```c
+size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+```
+
+From `examples/simple_compression.c:28`
+
+#### Advanced API
+
+```c
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, cLevel);
+```
+
+From `examples/streaming_compression.c:43`
+
+## Fast Modes (Negative Levels)
+
+Zstandard also offers **negative compression levels**, which extend the range of speed vs. ratio preferences. These fast modes prioritize speed over compression ratio.
+
+### Using Fast Modes
+
+Fast modes are specified with `--fast=#` on the command line:
+
+```bash
+zstd --fast=1 file.txt
+zstd --fast=4 file.txt
+```
+
+<Note>
+The lower the level (more negative), the faster the speed at the cost of compression ratio.
+</Note>
+
+### Performance Characteristics
+
+Benchmark results on a Core i7-9700K CPU @ 4.9GHz using the Silesia compression corpus:
+
+| Compressor              | Ratio | Compression | Decompression |
+|-------------------------|-------|-------------|---------------|
+| **zstd 1.5.7 -1**       | 2.896 | 510 MB/s    | 1550 MB/s     |
+| **zstd 1.5.7 --fast=1** | 2.439 | 545 MB/s    | 1850 MB/s     |
+| **zstd 1.5.7 --fast=4** | 2.146 | 665 MB/s    | 2050 MB/s     |
+
+From `README.md:44-49`
+
+## Ultra Modes (20-22)
+
+Levels **20-22** are labeled as `--ultra` modes and require explicit enabling. These levels provide maximum compression but require significantly more memory.
+
+<Warning>
+Levels >= 20 should be used with caution, as they require more memory during both compression and decompression.
+</Warning>
+
+### Enabling Ultra Modes
+
+On the command line:
+
+```bash
+zstd --ultra -20 file.txt
+zstd --ultra -22 file.txt
+```
+
+The `--ultra` flag is required to enable levels beyond 19, up to 22.
+
+From `programs/README.md:196`
+
+## Compression Level Bounds
+
+You can query the valid range of compression levels:
+
+```c
+int minLevel = ZSTD_minCLevel();  // Returns minimum negative level
+int maxLevel = ZSTD_maxCLevel();  // Returns 22
+```
+
+## Speed vs Ratio Trade-offs
+
+Zstandard's compression levels offer configurable speed vs compression trade-offs in small increments. Key characteristics:
+
+- **Decompression speed** is preserved and remains roughly the same at all settings
+- **Compression speed** decreases as the level increases
+- **Compression ratio** improves as the level increases
+
+<Tip>
+For most use cases, levels 1-9 provide an excellent balance. Use levels 10-19 when compression ratio is more important than speed. Reserve ultra modes (20-22) for maximum compression requirements where memory usage is not a constraint.
+</Tip>
+
+## Environment Variables
+
+The default compression level can be overridden using the `ZSTD_CLEVEL` environment variable:
+
+```bash
+export ZSTD_CLEVEL=5
+tar --zstd -cf archive.tar.zst files/
+```
+
+This is useful when the CLI is invoked in a way that doesn't allow passing arguments directly.
+
+From `programs/README.md:264-266`
+
+## Compression Strategies
+
+Higher compression levels use more complex strategies:
+
+```c
+typedef enum {
+    ZSTD_fast=1,
+    ZSTD_dfast=2,
+    ZSTD_greedy=3,
+    ZSTD_lazy=4,
+    ZSTD_lazy2=5,
+    ZSTD_btlazy2=6,
+    ZSTD_btopt=7,
+    ZSTD_btultra=8,
+    ZSTD_btultra2=9
+} ZSTD_strategy;
+```
+
+From `lib/zstd.h:336-347`
+
+The higher the value of the selected strategy, the more complex it is, resulting in stronger and slower compression.

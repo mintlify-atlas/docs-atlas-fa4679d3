@@ -1,0 +1,199 @@
+---
+title: Dictionary Training
+description: Train dictionaries from sample data to improve compression of small files
+---
+
+Dictionary training analyzes sample data to create optimized dictionaries for compressing similar files. The resulting dictionary can dramatically improve compression ratios for small data.
+
+## ZDICT_trainFromBuffer()
+
+Train a dictionary from an array of samples using the fast COVER algorithm.
+
+```c
+size_t ZDICT_trainFromBuffer(
+    void* dictBuffer,
+    size_t dictBufferCapacity,
+    const void* samplesBuffer,
+    const size_t* samplesSizes,
+    unsigned nbSamples
+);
+```
+
+<ParamField path="dictBuffer" type="void*">
+  Output buffer where the trained dictionary will be stored.
+</ParamField>
+
+<ParamField path="dictBufferCapacity" type="size_t">
+  Maximum size of the output dictionary buffer. Recommended: ~100 KB.
+</ParamField>
+
+<ParamField path="samplesBuffer" type="const void*">
+  Input buffer containing all samples concatenated together.
+</ParamField>
+
+<ParamField path="samplesSizes" type="const size_t*">
+  Array containing the size of each sample, in order.
+</ParamField>
+
+<ParamField path="nbSamples" type="unsigned">
+  Number of samples provided. Recommended: provide ~100x the dictionary size in total samples.
+</ParamField>
+
+### Returns
+
+Size of dictionary stored into `dictBuffer` (&lt;= `dictBufferCapacity`), or an error code which can be tested with `ZDICT_isError()`.
+
+### Notes
+
+- This function redirects to `ZDICT_optimizeTrainFromBuffer_fastCover()` with default parameters (d=8, steps=4, f=20, accel=1)
+- Memory usage is about 6 MB
+- Training will fail if there are not enough samples or if samples are too small (< 8 bytes)
+- Recommended to provide a few thousand samples totaling ~100x the target dictionary size
+
+### Example
+
+```c
+#define DICT_SIZE (100 * 1024)  // 100 KB
+#define NUM_SAMPLES 1000
+
+size_t sampleSizes[NUM_SAMPLES];
+void* samplesBuffer = /* load concatenated samples */;
+void* dictBuffer = malloc(DICT_SIZE);
+
+size_t dictSize = ZDICT_trainFromBuffer(
+    dictBuffer, DICT_SIZE,
+    samplesBuffer, sampleSizes, NUM_SAMPLES
+);
+
+if (ZDICT_isError(dictSize)) {
+    fprintf(stderr, "Dictionary training failed: %s\n",
+            ZDICT_getErrorName(dictSize));
+}
+```
+
+---
+
+## ZDICT_finalizeDictionary()
+
+Convert raw dictionary content into a zstd dictionary by adding headers and entropy tables.
+
+```c
+size_t ZDICT_finalizeDictionary(
+    void* dstDictBuffer,
+    size_t maxDictSize,
+    const void* dictContent,
+    size_t dictContentSize,
+    const void* samplesBuffer,
+    const size_t* samplesSizes,
+    unsigned nbSamples,
+    ZDICT_params_t parameters
+);
+```
+
+<ParamField path="dstDictBuffer" type="void*">
+  Output buffer for the finalized dictionary. Can overlap with `dictContent`.
+</ParamField>
+
+<ParamField path="maxDictSize" type="size_t">
+  Maximum size of the output dictionary. Must be >= max(dictContentSize, ZDICT_DICTSIZE_MIN).
+</ParamField>
+
+<ParamField path="dictContent" type="const void*">
+  Raw dictionary content (can be from any source, not just zstd training).
+</ParamField>
+
+<ParamField path="dictContentSize" type="size_t">
+  Size of the raw dictionary content.
+</ParamField>
+
+<ParamField path="samplesBuffer" type="const void*">
+  Buffer containing concatenated samples for building entropy tables.
+</ParamField>
+
+<ParamField path="samplesSizes" type="const size_t*">
+  Array of sizes for each sample.
+</ParamField>
+
+<ParamField path="nbSamples" type="unsigned">
+  Number of samples provided.
+</ParamField>
+
+<ParamField path="parameters" type="ZDICT_params_t">
+  Dictionary parameters:
+  - `compressionLevel`: Optimize for specific compression level (0 = default)
+  - `notificationLevel`: Log verbosity (0-4, where 0 = none)
+  - `dictID`: Force specific dictionary ID (0 = auto-generate random ID)
+</ParamField>
+
+### Returns
+
+Size of dictionary stored into `dstDictBuffer` (&lt;= `maxDictSize`), or an error code which can be tested with `ZDICT_isError()`.
+
+### Notes
+
+- Adds zstd header with magic number, dictionary ID, and entropy tables
+- Samples are used to construct statistics for the compression level specified
+- If header + content doesn't fit in `maxDictSize`, content is truncated from the beginning
+- Most profitable content is presumed to be at the end of the dictionary
+- May fail if not enough samples, samples are uncompressible, or all samples are identical
+
+### Example
+
+```c
+// Convert raw content to zstd dictionary
+char rawDict[1024] = /* custom dictionary content */;
+void* samples = /* load samples */;
+size_t sampleSizes[100];
+
+ZDICT_params_t params;
+memset(&params, 0, sizeof(params));
+params.compressionLevel = 3;
+params.notificationLevel = 2;  // Show progress
+params.dictID = 0;  // Auto-generate
+
+void* dictBuffer = malloc(110 * 1024);
+size_t dictSize = ZDICT_finalizeDictionary(
+    dictBuffer, 110 * 1024,
+    rawDict, sizeof(rawDict),
+    samples, sampleSizes, 100,
+    params
+);
+
+if (ZDICT_isError(dictSize)) {
+    fprintf(stderr, "Failed: %s\n", ZDICT_getErrorName(dictSize));
+}
+```
+
+---
+
+## Helper Functions
+
+### ZDICT_getDictID()
+
+Extract the dictionary ID from a dictionary buffer.
+
+```c
+unsigned ZDICT_getDictID(const void* dictBuffer, size_t dictSize);
+```
+
+Returns the dictionary ID, or 0 if the buffer is not a valid zstd dictionary.
+
+### ZDICT_isError()
+
+Test if a return value indicates an error.
+
+```c
+unsigned ZDICT_isError(size_t errorCode);
+```
+
+Returns 1 if error, 0 otherwise.
+
+### ZDICT_getErrorName()
+
+Get a human-readable error message.
+
+```c
+const char* ZDICT_getErrorName(size_t errorCode);
+```
+
+Returns a string describing the error.

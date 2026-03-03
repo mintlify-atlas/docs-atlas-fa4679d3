@@ -1,0 +1,318 @@
+---
+title: Decompression Commands
+description: Decompression commands and options for zstd command-line tool
+---
+
+The `zstd` CLI provides fast and flexible decompression capabilities with various output and validation options.
+
+## Basic Decompression
+
+### Standard Decompression
+
+```bash
+# Decompress a file
+zstd -d file.txt.zst
+# Output: file.txt
+
+# Alternative syntax
+zstd --decompress file.txt.zst
+unzstd file.txt.zst
+```
+
+### Decompress to stdout
+
+```bash
+# Write to stdout
+zstd -dc file.txt.zst
+zstd -d -c file.txt.zst
+
+# Using symlinks
+zstdcat file.txt.zst
+zcat file.txt.zst
+```
+
+### Specify Output File
+
+```bash
+# Decompress to specific file
+zstd -d file.txt.zst -o output.txt
+
+# Keep compressed file (default)
+zstd -d -k file.txt.zst
+
+# Remove compressed file after decompression
+zstd -d --rm file.txt.zst
+```
+
+## File Information
+
+### List File Details
+
+```bash
+# Display information about compressed file
+zstd -l file.txt.zst
+
+# Verbose information
+zstd -lv file.txt.zst
+```
+
+Displays information such as:
+- Original size
+- Compressed size
+- Compression ratio
+- Checksum (if available)
+
+<Note>
+Some fields may not be available depending on how the file was compressed (e.g., missing content size if compressed with `--no-content-size`).
+</Note>
+
+## Integrity Testing
+
+### Test Compressed Files
+
+```bash
+# Test file integrity without decompressing
+zstd -t file.txt.zst
+zstd --test file.txt.zst
+
+# Test multiple files
+zstd -t *.zst
+```
+
+This is equivalent to `zstd -d --stdout > /dev/null`. Data is decompressed and checksummed but discarded. No files are created or removed.
+
+### Checksum Validation
+
+```bash
+# Validate checksums during decompression (default)
+zstd -d file.txt.zst
+
+# Ignore checksums
+zstd -d --no-check file.txt.zst
+```
+
+## Memory Limits
+
+### Set Memory Usage Limit
+
+```bash
+# Limit decompression memory to 256 MiB
+zstd -d -M 256MiB file.txt.zst
+
+# Limit to 128 MiB (default)
+zstd -d -M 128MiB file.txt.zst
+```
+
+<Warning>
+If a compressed file requires more memory than the limit allows, decompression will fail. This is particularly relevant for files compressed with high `windowLog` values or `--long` mode.
+</Warning>
+
+### Large Window Sizes
+
+For files compressed with `windowLog > 27`:
+
+```bash
+# Decompress with large window (from --long=30)
+zstd -d --long=30 file.txt.zst
+
+# Or specify memory directly
+zstd -d --memory=1GiB file.txt.zst
+```
+
+## Sparse Files
+
+### Sparse Mode
+
+```bash
+# Enable sparse file support (default for files)
+zstd -d --sparse file.txt.zst
+
+# Disable sparse mode
+zstd -d --no-sparse file.txt.zst
+
+# Force sparse mode for stdout
+zstd -dc --sparse file.txt.zst
+```
+
+<Note>
+Sparse mode is enabled by default when output is a file and disabled when output is stdout. Sparse files save disk space and speed up decompression by reducing I/O for files with many zeros.
+</Note>
+
+## Pass-through Mode
+
+### Handle Uncompressed Files
+
+```bash
+# Pass through uncompressed files as-is
+zstd -d --pass-through file.txt
+
+# Force pass-through to stdout
+zstd -df --pass-through file.txt
+```
+
+With pass-through enabled, unrecognized formats are copied from input to output without modification. By default, pass-through occurs when output is stdout and `-f` is set.
+
+## Recursive Decompression
+
+### Decompress Directories
+
+```bash
+# Decompress all .zst files in directory
+zstd -d -r directory/
+
+# Output to flat directory
+zstd -d -r --output-dir-flat /output/dir input/
+
+# Preserve directory structure
+zstd -d -r --output-dir-mirror /output/dir input/
+```
+
+## Multiple File Decompression
+
+### File Lists
+
+```bash
+# Decompress files from list
+zstd -d --filelist files.txt
+
+# Create file list
+ls *.zst > files.txt
+zstd -d --filelist files.txt
+```
+
+Format is compatible with `ls` output, one file per line.
+
+### Wildcards
+
+```bash
+# Decompress multiple files
+zstd -d *.zst
+zstd -d file1.zst file2.zst file3.zst
+```
+
+## Dictionary Decompression
+
+### Using Dictionaries
+
+```bash
+# Decompress with dictionary
+zstd -d file.txt.zst -D dictionary
+
+# Dictionary is required for files compressed with -D
+zstd -d FILE.zst -D dictionaryName
+```
+
+<Warning>
+Files compressed with a dictionary **require** that same dictionary for decompression. The decoder will verify the dictionary ID matches.
+</Warning>
+
+### Memory-mapped Dictionaries
+
+```bash
+# Memory-map dictionary instead of loading it
+zstd -d --mmap-dict -D large-dictionary file.txt.zst
+
+# Disable memory mapping (default)
+zstd -d --no-mmap-dict -D dictionary file.txt.zst
+```
+
+## Progress and Output Control
+
+### Verbosity
+
+```bash
+# Verbose output
+zstd -dv file.txt.zst
+
+# Very verbose
+zstd -dvv file.txt.zst
+
+# Quiet mode (suppress warnings)
+zstd -dq file.txt.zst
+
+# Very quiet (suppress errors too)
+zstd -dqq file.txt.zst
+```
+
+### Progress Counter
+
+```bash
+# Force show progress
+zstd -d --progress file.txt.zst
+
+# Hide progress
+zstd -d --no-progress file.txt.zst
+```
+
+<Note>
+Progress counter is shown by default for single file decompression. When output is mixed with progress text, use `--no-progress`.
+</Note>
+
+## Force Operations
+
+### Override Protections
+
+```bash
+# Force various operations
+zstd -df file.txt.zst           # Overwrite existing files
+zstd -df file.txt.zst > output  # Force stdout to terminal
+```
+
+The `-f` flag:
+- Allows overwriting existing files
+- Enables output to stdout even if it's a terminal
+- Enables pass-through of unrecognized formats
+- Operates on links and block devices
+
+## Concatenated Files
+
+```bash
+# Decompress concatenated .zst files
+zstd -d concatenated.zst
+```
+
+Multiple `.zst` files concatenated together are decompressed as if they were a single file:
+
+```bash
+cat file1.zst file2.zst file3.zst > combined.zst
+zstd -d combined.zst
+# Outputs: combined (containing data from all three files)
+```
+
+## Asynchronous I/O
+
+```bash
+# Use async I/O (default)
+zstd -d --asyncio file.txt.zst
+
+# Disable async I/O
+zstd -d --no-asyncio file.txt.zst
+```
+
+## Format Detection
+
+The CLI automatically detects compression format:
+
+```bash
+# Automatically detects .zst format
+zstd -d file.txt.zst
+
+# Can also decompress gzip (if compiled with zlib)
+zstd -d file.txt.gz
+
+# And xz/lzma (if compiled with lzma)
+zstd -d file.txt.xz
+zstd -d file.txt.lzma
+
+# And lz4 (if compiled with lz4)
+zstd -d file.txt.lz4
+```
+
+## Trace Logging
+
+```bash
+# Log tracing information
+zstd -d --trace trace.log file.txt.zst
+```
+
+Useful for debugging or performance analysis.

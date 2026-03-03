@@ -1,80 +1,365 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start guide
+description: Get up and running with Zstandard compression in minutes with this simple working example
 ---
 
-## Get started in three steps
+# Quick start guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through creating your first compression and decompression program using the Zstandard C library.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+Before starting, make sure you have:
+
+- Zstandard library installed (see [Installation](/installation))
+- A C compiler (`gcc`, `clang`, or equivalent)
+- Basic familiarity with C programming
+
+## Simple compression example
+
+Let's create a simple program that compresses a file. This example is based on the official `simple_compression.c` from the Zstandard repository.
+
+<Steps>
+  <Step title="Create the compression program">
+    Create a file named `compress.c` with the following code:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```c compress.c
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <zstd.h>
+
+    static void compress_file(const char* input_file, const char* output_file)
+    {
+        // Read input file
+        FILE* fin = fopen(input_file, "rb");
+        if (!fin) {
+            fprintf(stderr, "Failed to open input file\n");
+            exit(1);
+        }
+        
+        fseek(fin, 0, SEEK_END);
+        size_t fSize = ftell(fin);
+        fseek(fin, 0, SEEK_SET);
+        
+        void* fBuff = malloc(fSize);
+        if (!fBuff) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        
+        fread(fBuff, 1, fSize, fin);
+        fclose(fin);
+        
+        // Compress the data
+        size_t const cBuffSize = ZSTD_compressBound(fSize);
+        void* const cBuff = malloc(cBuffSize);
+        if (!cBuff) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        
+        size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+        if (ZSTD_isError(cSize)) {
+            fprintf(stderr, "Compression error: %s\n", ZSTD_getErrorName(cSize));
+            exit(1);
+        }
+        
+        // Write compressed data to output file
+        FILE* fout = fopen(output_file, "wb");
+        if (!fout) {
+            fprintf(stderr, "Failed to open output file\n");
+            exit(1);
+        }
+        
+        fwrite(cBuff, 1, cSize, fout);
+        fclose(fout);
+        
+        printf("%s : %zu -> %zu bytes (%.2f%% compression)\n",
+               input_file, fSize, cSize, 
+               (1.0 - (double)cSize / fSize) * 100);
+        
+        free(fBuff);
+        free(cBuff);
+    }
+
+    int main(int argc, char** argv)
+    {
+        if (argc != 3) {
+            printf("Usage: %s INPUT_FILE OUTPUT_FILE\n", argv[0]);
+            return 1;
+        }
+        
+        compress_file(argv[1], argv[2]);
+        return 0;
+    }
+    ```
+  </Step>
+  
+  <Step title="Create the decompression program">
+    Create a file named `decompress.c`:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```c decompress.c
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <zstd.h>
 
-### Step 2: Deploy your changes
+    static void decompress_file(const char* input_file, const char* output_file)
+    {
+        // Read compressed file
+        FILE* fin = fopen(input_file, "rb");
+        if (!fin) {
+            fprintf(stderr, "Failed to open input file\n");
+            exit(1);
+        }
+        
+        fseek(fin, 0, SEEK_END);
+        size_t cSize = ftell(fin);
+        fseek(fin, 0, SEEK_SET);
+        
+        void* cBuff = malloc(cSize);
+        if (!cBuff) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        
+        fread(cBuff, 1, cSize, fin);
+        fclose(fin);
+        
+        // Get the decompressed size from the frame header
+        unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+        if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+            fprintf(stderr, "%s: not compressed by zstd!\n", input_file);
+            exit(1);
+        }
+        if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+            fprintf(stderr, "%s: original size unknown!\n", input_file);
+            exit(1);
+        }
+        
+        void* const rBuff = malloc((size_t)rSize);
+        if (!rBuff) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        
+        // Decompress
+        size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+        if (ZSTD_isError(dSize)) {
+            fprintf(stderr, "Decompression error: %s\n", ZSTD_getErrorName(dSize));
+            exit(1);
+        }
+        
+        // Write decompressed data to output file
+        FILE* fout = fopen(output_file, "wb");
+        if (!fout) {
+            fprintf(stderr, "Failed to open output file\n");
+            exit(1);
+        }
+        
+        fwrite(rBuff, 1, dSize, fout);
+        fclose(fout);
+        
+        printf("%s : %zu -> %zu bytes\n", input_file, cSize, (size_t)rSize);
+        printf("%s correctly decompressed to %s\n", input_file, output_file);
+        
+        free(cBuff);
+        free(rBuff);
+    }
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    int main(int argc, char** argv)
+    {
+        if (argc != 3) {
+            printf("Usage: %s COMPRESSED_FILE OUTPUT_FILE\n", argv[0]);
+            return 1;
+        }
+        
+        decompress_file(argv[1], argv[2]);
+        return 0;
+    }
+    ```
+  </Step>
+  
+  <Step title="Compile the programs">
+    Compile both programs with the Zstandard library:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    # Compile compression program
+    gcc -o compress compress.c -lzstd
+    
+    # Compile decompression program
+    gcc -o decompress decompress.c -lzstd
+    ```
+    
+    <Tip>
+    If you installed Zstandard in a custom location, you may need to specify the include and library paths:
+    ```bash
+    gcc -o compress compress.c -I/path/to/include -L/path/to/lib -lzstd
+    ```
+    </Tip>
+  </Step>
+  
+  <Step title="Test the programs">
+    Create a test file and compress it:
+    
+    ```bash
+    # Create a test file
+    echo "Hello, Zstandard! This is a test file." > test.txt
+    
+    # Compress the file
+    ./compress test.txt test.txt.zst
+    
+    # Decompress the file
+    ./decompress test.txt.zst test_restored.txt
+    
+    # Verify the output
+    cat test_restored.txt
+    ```
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Expected output
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+When you run the compression program, you should see output like:
 
-### Step 3: Go live
+```
+test.txt : 40 -> 28 bytes (30.00% compression)
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+When you run the decompression program:
+
+```
+test.txt.zst : 28 -> 40 bytes
+test.txt.zst correctly decompressed to test_restored.txt
+```
+
+## Understanding the API
+
+The examples above use the Simple Core API, which is perfect for single-step compression:
+
+### Key functions
+
+#### `ZSTD_compressBound()`
+
+Calculates the maximum compressed size for a given input size. This guarantees that the destination buffer is large enough:
+
+```c
+size_t const cBuffSize = ZSTD_compressBound(fSize);
+```
+
+#### `ZSTD_compress()`
+
+Compresses source content as a single zstd compressed frame:
+
+```c
+size_t ZSTD_compress(void* dst, size_t dstCapacity,
+                     const void* src, size_t srcSize,
+                     int compressionLevel);
+```
+
+- **dst**: Destination buffer for compressed data
+- **dstCapacity**: Size of destination buffer
+- **src**: Source data to compress
+- **srcSize**: Size of source data
+- **compressionLevel**: Compression level (1-22, or negative for fast mode)
+
+#### `ZSTD_getFrameContentSize()`
+
+Returns the decompressed content size stored in the frame header:
+
+```c
+unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+```
+
+<Warning>
+Always check for `ZSTD_CONTENTSIZE_ERROR` and `ZSTD_CONTENTSIZE_UNKNOWN` when calling this function.
+</Warning>
+
+#### `ZSTD_decompress()`
+
+Decompresses a zstd compressed frame:
+
+```c
+size_t ZSTD_decompress(void* dst, size_t dstCapacity,
+                       const void* src, size_t compressedSize);
+```
+
+#### Error handling
+
+Always check if operations failed using `ZSTD_isError()` and get error messages with `ZSTD_getErrorName()`:
+
+```c
+if (ZSTD_isError(cSize)) {
+    fprintf(stderr, "Error: %s\n", ZSTD_getErrorName(cSize));
+}
+```
+
+## Compression levels
+
+Experiment with different compression levels to find the right balance for your use case:
+
+<CodeGroup>
+
+```c Fast compression (negative levels)
+// Faster compression, lower ratio
+ZSTD_compress(dst, dstSize, src, srcSize, -5);
+```
+
+```c Default compression
+// Balanced speed and ratio (level 3 is default)
+ZSTD_compress(dst, dstSize, src, srcSize, 1);
+ZSTD_compress(dst, dstSize, src, srcSize, 3);
+```
+
+```c Maximum compression
+// Best ratio, slower compression
+ZSTD_compress(dst, dstSize, src, srcSize, 19);
+```
+
+```c Ultra compression
+// Maximum ratio, requires more memory
+ZSTD_compress(dst, dstSize, src, srcSize, 22);
+```
+
+</CodeGroup>
+
+<Note>
+Decompression speed remains roughly the same regardless of the compression level used.
+</Note>
+
+## Performance tips
+
+1. **Reuse contexts** for multiple compressions to avoid malloc/free overhead (see `ZSTD_compressCCtx()`)
+2. **Use streaming APIs** for large files that don't fit in memory (see `ZSTD_compressStream()`)
+3. **Train dictionaries** for small data compression to dramatically improve ratios
+4. **Choose appropriate compression levels** based on your speed/ratio requirements
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you have a working example, explore more advanced features:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Streaming compression" icon="water">
+    Learn how to compress data that doesn't fit in memory using streaming APIs
+  </Card>
+  
+  <Card title="Dictionary compression" icon="book">
+    Improve compression ratios for small data by training custom dictionaries
+  </Card>
+  
+  <Card title="Context reuse" icon="recycle">
+    Optimize performance when compressing multiple files by reusing contexts
+  </Card>
+  
+  <Card title="API reference" icon="code">
+    Explore the complete Zstandard API documentation
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Complete example source
+
+The complete, production-ready examples used as the basis for this guide can be found in the official Zstandard repository:
+
+- [`simple_compression.c`](https://github.com/facebook/zstd/blob/dev/examples/simple_compression.c)
+- [`simple_decompression.c`](https://github.com/facebook/zstd/blob/dev/examples/simple_decompression.c)
+- [All examples](https://github.com/facebook/zstd/tree/dev/examples)

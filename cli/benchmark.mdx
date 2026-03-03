@@ -1,0 +1,334 @@
+---
+title: Benchmark Mode
+description: Benchmark mode options and usage for zstd command-line tool
+---
+
+The `zstd` CLI includes an in-memory compression benchmark module for testing compression parameters and measuring system performance.
+
+## Basic Benchmarking
+
+### Default Benchmark
+
+```bash
+# Benchmark with default level (3)
+zstd -b file.txt
+
+# Benchmark multiple files
+zstd -b file1.txt file2.txt file3.txt
+
+# Benchmark directory
+zstd -b -r directory/
+```
+
+Without files, benchmark uses procedurally generated "lorem ipsum" text:
+
+```bash
+# Benchmark with synthetic data
+zstd -b
+```
+
+## Compression Levels
+
+### Single Level
+
+```bash
+# Benchmark specific compression level
+zstd -b1 file.txt   # Level 1
+zstd -b5 file.txt   # Level 5
+zstd -b19 file.txt  # Level 19
+```
+
+### Level Range
+
+```bash
+# Test levels 1 through 9
+zstd -b1 -e9 file.txt
+
+# Test levels 1 through 19
+zstd -b1e19 file.txt  # Parameter aggregation
+
+# Test ultra compression
+zstd -b20 --ultra file.txt
+```
+
+<Note>
+Testing multiple levels helps identify the optimal balance between compression ratio and speed for your data.
+</Note>
+
+## Benchmark Options
+
+### Minimum Evaluation Time
+
+```bash
+# Run for minimum 3 seconds (default)
+zstd -b -i3 file.txt
+
+# Run for 5 seconds per level
+zstd -b1e10 -i5 file.txt
+
+# Quick test (1 second)
+zstd -b -i1 file.txt
+```
+
+The `-i#` parameter sets the minimum evaluation time in seconds. Longer times provide more accurate results.
+
+### File Chunking
+
+```bash
+# Split files into independent chunks
+zstd -b -B 1MiB file.txt
+zstd -b -B 64KiB file.txt
+
+# No chunking (default)
+zstd -b -B 0 file.txt
+```
+
+<Note>
+Chunking affects both compression ratio and multi-threading behavior.
+</Note>
+
+### Per-File Results
+
+```bash
+# Output result per input file (default: consolidated)
+zstd -b -S file1.txt file2.txt file3.txt
+
+# Consolidated result
+zstd -b file1.txt file2.txt file3.txt
+```
+
+## Decompression Benchmarking
+
+```bash
+# Benchmark decompression only
+zstd -b -d file.txt.zst
+
+# Test multiple levels of pre-compressed files
+zstd -b1e10 -d files*.zst
+```
+
+<Warning>
+Decompression benchmarking requires pre-compressed `.zst` files.
+</Warning>
+
+## Multi-threading Benchmarks
+
+### Thread Count
+
+```bash
+# Benchmark with 4 threads
+zstd -b -T4 file.txt
+
+# Use all CPU cores
+zstd -b -T0 file.txt
+
+# Single-threaded
+zstd -b -T1 file.txt
+```
+
+<Note>
+By default, benchmarking uses `max(1, min(4, nbCores/4))` threads to match normal CLI behavior.
+</Note>
+
+### Thread Scaling Analysis
+
+```bash
+# Compare single vs multi-threaded
+zstd -b5 -T1 file.txt
+zstd -b5 -T2 file.txt
+zstd -b5 -T4 file.txt
+zstd -b5 -T0 file.txt
+```
+
+## Dictionary Benchmarking
+
+```bash
+# Benchmark with dictionary
+zstd -b -D dictionary files/*
+
+# Test levels with dictionary
+zstd -b1e19 -D mydict samples/*.txt
+
+# Compare with and without dictionary
+zstd -b5 samples/*.txt           # Without
+zstd -b5 -D dict samples/*.txt   # With dictionary
+```
+
+## Advanced Parameter Testing
+
+### Custom Parameters
+
+```bash
+# Benchmark with advanced parameters
+zstd -b --zstd=wlog=23,clog=23,hlog=22 file.txt
+
+# Test different strategies
+zstd -b --zstd=strategy=1 file.txt  # Fast
+zstd -b --zstd=strategy=9 file.txt  # Ultra
+```
+
+### Long Distance Matching
+
+```bash
+# Benchmark with long mode
+zstd -b --long file.tar
+
+# Compare with and without
+zstd -b1e10 file.tar
+zstd -b1e10 --long file.tar
+```
+
+### Adaptive Compression
+
+```bash
+# Benchmark adaptive mode
+zstd -b --adapt file.txt
+
+# With constraints
+zstd -b --adapt=min=1,max=10 file.txt
+```
+
+## Process Priority
+
+```bash
+# Set real-time priority (Windows)
+zstd -b --priority=rt file.txt
+```
+
+<Note>
+Real-time priority can provide more consistent benchmark results by reducing OS scheduler interference.
+</Note>
+
+## Output Format
+
+Benchmark output follows this format:
+
+```
+CompressionLevel#Filename: InputSize -> OutputSize (Ratio), CompressionSpeed, DecompressionSpeed
+```
+
+**Example output:**
+```
+ 1#file.txt      : 1048576 -> 524288 (2.000), 450.2 MB/s, 1200.5 MB/s
+ 5#file.txt      : 1048576 -> 389120 (2.695),  98.3 MB/s,  980.2 MB/s
+10#file.txt      : 1048576 -> 327680 (3.200),  28.7 MB/s,  950.8 MB/s
+```
+
+## Benchmark Methodology
+
+<Note>
+**How benchmarking works:**
+
+1. Files are read into memory (eliminates I/O overhead)
+2. Multiple files are joined together
+3. Each compression/decompression run lasts at least the specified time (`-i#`)
+4. Small files are compressed/decompressed multiple times per run for accuracy
+5. Results show average speed over all runs
+</Note>
+
+## Practical Examples
+
+### Find Optimal Level
+
+```bash
+# Test all standard levels
+zstd -b1e19 mydata.txt
+
+# Find best level for your use case
+# Example: balance speed and ratio
+zstd -b3e10 -i5 mydata.txt
+```
+
+### Compare Algorithms
+
+```bash
+# Compare different strategies
+zstd -b5 --zstd=strategy=1 file.txt  # ZSTD_fast
+zstd -b5 --zstd=strategy=3 file.txt  # ZSTD_greedy
+zstd -b5 --zstd=strategy=7 file.txt  # ZSTD_btopt
+```
+
+### Test Dictionary Performance
+
+```bash
+# Create dictionary
+zstd --train samples/* -o dict
+
+# Benchmark with dictionary
+zstd -b1e19 -D dict samples/*
+
+# Compare without dictionary
+zstd -b1e19 samples/*
+```
+
+### Evaluate Multi-threading
+
+```bash
+# Test thread scaling
+for threads in 1 2 4 8 16; do
+  echo "Testing with $threads threads:"
+  zstd -b10 -T$threads -i5 largefile.txt
+done
+```
+
+### Test Long Distance Matching
+
+```bash
+# Benchmark tar of similar files
+zstd -b5 versions.tar
+zstd -b5 --long versions.tar
+
+# Test different window sizes
+zstd -b5 --long=27 versions.tar
+zstd -b5 --long=30 versions.tar
+```
+
+### Quick Performance Check
+
+```bash
+# Fast system performance test
+zstd -b -i1
+
+# Comprehensive test
+zstd -b1e19 -i3
+```
+
+### Measure Decompression Speed
+
+```bash
+# Pre-compress at different levels
+zstd -1 file.txt -o file-1.zst
+zstd -10 file.txt -o file-10.zst
+zstd -19 file.txt -o file-19.zst
+
+# Benchmark decompression
+zstd -b -d file-*.zst
+```
+
+## Performance Analysis Tips
+
+<Note>
+**Benchmark best practices:**
+
+- Use representative data for accurate results
+- Test with typical file sizes from your use case
+- Run longer tests (`-i5` or higher) for stability
+- Compare multiple compression levels to find sweet spot
+- Consider both compression and decompression speeds
+- Test with actual thread count of target system
+- Benchmark with dictionaries if using small files
+</Note>
+
+## Combining Parameters
+
+```bash
+# Complex benchmark scenario
+zstd -b1e19i5 -T0 -D dict --long -r samples/
+
+# Explanation:
+# -b1e19i5  : Test levels 1-19, 5 seconds each
+# -T0       : Use all CPU cores
+# -D dict   : Use dictionary
+# --long    : Enable long distance matching
+# -r        : Recursive directory processing
+```

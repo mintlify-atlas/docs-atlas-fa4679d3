@@ -1,0 +1,282 @@
+---
+title: Dictionary Decompression
+description: Decompress data using the same dictionaries that were used during compression
+---
+
+Dictionary decompression uses a pre-digested dictionary to decompress data that was compressed with the same dictionary.
+
+## ZSTD_createDDict()
+
+Create a digested decompression dictionary for reuse across multiple decompression operations.
+
+```c
+ZSTD_DDict* ZSTD_createDDict(
+    const void* dictBuffer,
+    size_t dictSize
+);
+```
+
+<ParamField path="dictBuffer" type="const void*">
+  Dictionary data (can be released after DDict creation, as content is copied internally).
+</ParamField>
+
+<ParamField path="dictSize" type="size_t">
+  Size of the dictionary buffer.
+</ParamField>
+
+### Returns
+
+Pointer to the created `ZSTD_DDict`, or `NULL` on failure.
+
+### Notes
+
+- Digesting a dictionary prepares it for decompression without startup delay
+- Dictionary content is copied into the DDict, so `dictBuffer` can be freed after creation
+- The DDict can be shared by multiple threads concurrently (read-only usage)
+- Must use the same dictionary that was used during compression
+
+### Example
+
+```c
+// Load dictionary from file
+size_t dictSize;
+void* dictBuffer = loadFile("mydict.zst", &dictSize);
+
+// Create DDict
+ZSTD_DDict* ddict = ZSTD_createDDict(dictBuffer, dictSize);
+if (ddict == NULL) {
+    fprintf(stderr, "Failed to create DDict\n");
+    exit(1);
+}
+
+// Dictionary buffer can now be freed
+free(dictBuffer);
+
+// Use ddict for multiple decompressions...
+
+// Clean up when done
+ZSTD_freeDDict(ddict);
+```
+
+---
+
+## ZSTD_decompress_usingDDict()
+
+Decompress data using a digested dictionary.
+
+```c
+size_t ZSTD_decompress_usingDDict(
+    ZSTD_DCtx* dctx,
+    void* dst,
+    size_t dstCapacity,
+    const void* src,
+    size_t srcSize,
+    const ZSTD_DDict* ddict
+);
+```
+
+<ParamField path="dctx" type="ZSTD_DCtx*">
+  Decompression context (create with `ZSTD_createDCtx()`).
+</ParamField>
+
+<ParamField path="dst" type="void*">
+  Destination buffer for decompressed data.
+</ParamField>
+
+<ParamField path="dstCapacity" type="size_t">
+  Size of destination buffer. Use `ZSTD_getFrameContentSize()` to determine the required size.
+</ParamField>
+
+<ParamField path="src" type="const void*">
+  Compressed data to decompress.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of compressed data.
+</ParamField>
+
+<ParamField path="ddict" type="const ZSTD_DDict*">
+  Pre-created decompression dictionary.
+</ParamField>
+
+### Returns
+
+Decompressed size written into `dst`, or an error code which can be tested with `ZSTD_isError()`.
+
+### Notes
+
+- The dictionary must match the one used during compression
+- zstd will verify the dictionary ID matches (if present in the frame)
+- When content size is known, zstd verifies the decompressed size matches
+
+### Example
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <zstd.h>
+
+// Helper function from examples/dictionary_decompression.c
+static ZSTD_DDict* createDDict(const char* dictFileName)
+{
+    size_t dictSize;
+    void* dictBuffer = loadFile(dictFileName, &dictSize);
+    ZSTD_DDict* ddict = ZSTD_createDDict(dictBuffer, dictSize);
+    free(dictBuffer);
+    return ddict;
+}
+
+static void decompress(const char* fname, const ZSTD_DDict* ddict)
+{
+    size_t cSize;
+    void* cBuff = loadFile(fname, &cSize);
+
+    // Get original size from frame header
+    unsigned long long rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+        fprintf(stderr, "%s: not compressed by zstd!\n", fname);
+        return;
+    }
+    if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+        fprintf(stderr, "%s: original size unknown!\n", fname);
+        return;
+    }
+
+    void* rBuff = malloc((size_t)rSize);
+
+    // Verify dictionary ID matches
+    unsigned expectedDictID = ZSTD_getDictID_fromDDict(ddict);
+    unsigned actualDictID = ZSTD_getDictID_fromFrame(cBuff, cSize);
+    if (actualDictID != expectedDictID) {
+        fprintf(stderr, "DictID mismatch: expected %u got %u\n",
+                expectedDictID, actualDictID);
+        free(rBuff);
+        free(cBuff);
+        return;
+    }
+
+    // Decompress using dictionary
+    ZSTD_DCtx* dctx = ZSTD_createDCtx();
+    size_t dSize = ZSTD_decompress_usingDDict(
+        dctx, rBuff, rSize,
+        cBuff, cSize, ddict
+    );
+
+    if (ZSTD_isError(dSize)) {
+        fprintf(stderr, "Decompression error: %s\n",
+                ZSTD_getErrorName(dSize));
+    } else {
+        printf("%s : %zu -> %zu\n", fname, cSize, dSize);
+    }
+
+    ZSTD_freeDCtx(dctx);
+    free(rBuff);
+    free(cBuff);
+}
+
+int main(int argc, char** argv)
+{
+    // Load dictionary once
+    ZSTD_DDict* dictPtr = createDDict("mydict.zst");
+
+    // Decompress multiple files using the same dictionary
+    for (int i = 1; i < argc; i++) {
+        decompress(argv[i], dictPtr);
+    }
+
+    ZSTD_freeDDict(dictPtr);
+    return 0;
+}
+```
+
+---
+
+## ZSTD_freeDDict()
+
+Free memory allocated by `ZSTD_createDDict()`.
+
+```c
+size_t ZSTD_freeDDict(ZSTD_DDict* ddict);
+```
+
+<ParamField path="ddict" type="ZSTD_DDict*">
+  Dictionary to free. Passing NULL is safe and performs no operation.
+</ParamField>
+
+### Returns
+
+Always returns 0.
+
+---
+
+## Dictionary Helper Functions
+
+### ZSTD_getDictID_fromDDict()
+
+Extract the dictionary ID from a DDict.
+
+```c
+unsigned ZSTD_getDictID_fromDDict(const ZSTD_DDict* ddict);
+```
+
+Returns the dictionary ID, or 0 if the dictionary is not conformant to Zstandard specification or is empty. Non-conformant dictionaries can still be loaded as content-only dictionaries.
+
+### ZSTD_getDictID_fromFrame()
+
+Extract the dictionary ID required to decompress a frame.
+
+```c
+unsigned ZSTD_getDictID_fromFrame(const void* src, size_t srcSize);
+```
+
+Returns the dictionary ID, or 0 if:
+- The frame doesn't require a dictionary
+- The dictionary ID was intentionally removed
+- `srcSize` is too small to decode the header
+- The data is not a Zstandard frame
+
+### ZSTD_getFrameContentSize()
+
+Get the decompressed size from the frame header.
+
+```c
+unsigned long long ZSTD_getFrameContentSize(
+    const void* src,
+    size_t srcSize
+);
+```
+
+Returns:
+- Decompressed size in bytes (when available in frame header)
+- `ZSTD_CONTENTSIZE_UNKNOWN` if size is not encoded in the frame
+- `ZSTD_CONTENTSIZE_ERROR` if an error occurred (invalid magic number, insufficient `srcSize`)
+
+---
+
+## Advanced API
+
+For more control over dictionary decompression:
+
+### ZSTD_DCtx_refDDict()
+
+Reference a prepared dictionary for all future decompression operations.
+
+```c
+size_t ZSTD_DCtx_refDDict(ZSTD_DCtx* dctx, const ZSTD_DDict* ddict);
+```
+
+The dictionary remains active for all future frames. Use with `ZSTD_decompressDCtx()` or streaming API.
+
+### ZSTD_DCtx_loadDictionary()
+
+Load a dictionary directly into a decompression context.
+
+```c
+size_t ZSTD_DCtx_loadDictionary(
+    ZSTD_DCtx* dctx,
+    const void* dict,
+    size_t dictSize
+);
+```
+
+Creates an internal DDict from the dictionary buffer. The dictionary remains sticky and will be used for all future frames until reset or replaced.

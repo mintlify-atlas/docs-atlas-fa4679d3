@@ -1,0 +1,331 @@
+---
+title: Dictionary Training
+description: Dictionary training and usage with zstd command-line tool
+---
+
+Zstandard's dictionary compression dramatically improves compression ratios on small files and messages. The CLI provides powerful tools for training custom dictionaries from sample data.
+
+## Dictionary Overview
+
+Dictionaries work by providing a shared context between compression and decompression. They are most effective when:
+
+- Compressing many small files (< 10 KB typical)
+- Files share common patterns or structure
+- You have representative training samples
+
+<Note>
+Dictionary gains are most effective in the first few KB of data. After that, the compressor relies more on previously decoded content.
+</Note>
+
+## Basic Dictionary Workflow
+
+### 1. Create Dictionary
+
+```bash
+# Train dictionary from samples
+zstd --train samples/* -o dictionary
+
+# Train from directory
+zstd --train -r training-data/ -o mydict
+```
+
+### 2. Compress with Dictionary
+
+```bash
+# Compress using dictionary
+zstd file.txt -D dictionary
+zstd file.txt -D mydict -o file.txt.zst
+```
+
+### 3. Decompress with Dictionary
+
+```bash
+# Decompress using dictionary
+zstd -d file.txt.zst -D dictionary
+zstd --decompress file.txt.zst -D mydict
+```
+
+<Warning>
+The **same dictionary** must be used for both compression and decompression. The decoder verifies dictionary ID for safety.
+</Warning>
+
+## Training Options
+
+### Training Set Requirements
+
+Ideal training sets:
+
+- **> 100 samples** for best results
+- **Total size ~100x target dictionary size** (e.g., 10 MB for 100 KB dictionary)
+- **Small files** (only first 128 KiB of large files is used)
+- **Representative** of data to be compressed
+
+```bash
+# Good training set example
+zstd --train small-files/* -o dict.zst
+# 500 files, each 20 KB, total 10 MB for 100 KB dictionary
+```
+
+### Dictionary Size
+
+```bash
+# Default size (112,640 bytes)
+zstd --train samples/* -o dict
+
+# Specify maximum size
+zstd --train --maxdict=64KB samples/* -o dict
+zstd --train --maxdict=1MiB samples/* -o dict
+```
+
+### Compression Level
+
+```bash
+# Train at specific compression level
+zstd --train -5 samples/* -o dict
+zstd --train -19 samples/* -o dict
+```
+
+Training at the target compression level generates statistics tuned for that level, providing a small compression ratio improvement.
+
+### Memory Limit
+
+```bash
+# Limit training sample data (default: 2 GB)
+zstd --train -M 512MiB samples/* -o dict
+zstd --train --memory=1GiB samples/* -o dict
+```
+
+<Note>
+When training set exceeds memory limit, CLI randomly selects samples to improve dictionary relevance. Selection is deterministic for reproducibility.
+</Note>
+
+### Sample Splitting
+
+```bash
+# Split samples into independent chunks
+zstd --train --split=64KB samples/* -o dict
+```
+
+## Training Algorithms
+
+### FastCover (Default)
+
+Fast cover algorithm with good defaults:
+
+```bash
+# Default training (equivalent to --train-fastcover=d=8,steps=4)
+zstd --train samples/* -o dict
+
+# Custom parameters
+zstd --train-fastcover samples/* -o dict
+zstd --train-fastcover=d=8,f=20,steps=4 samples/* -o dict
+```
+
+**Parameters:**
+- `k=#` - Segment size (default: auto-detected in range [50, 2000])
+- `d=#` - Subsegment size (6 or 8, default: 8)
+- `f=#` - Log of frequency array size (0 < f < 32, default: 20)
+- `steps=#` - Number of steps for k optimization (default: 40)
+- `split=#` - Training/testing split percentage (default: 75)
+- `accel=#` - Acceleration factor (0 < accel ≤ 10, default: 1)
+- `shrink[=#]` - Shrink dictionary to optimal size
+
+```bash
+# Examples
+zstd --train-fastcover=d=8,f=15,accel=2 samples/* -o dict
+zstd --train-fastcover=k=1000,d=8,steps=100 samples/* -o dict
+```
+
+### Cover Algorithm
+
+Slower but potentially better quality:
+
+```bash
+# Cover algorithm
+zstd --train-cover samples/* -o dict
+
+# With parameters
+zstd --train-cover=k=50,d=8 samples/* -o dict
+zstd --train-cover=d=8,steps=500 samples/* -o dict
+```
+
+**Parameters:**
+- `k=#` - Segment size (default: auto-detected)
+- `d=#` - Subsegment size (6-16, default: tries 6 and 8)
+- `steps=#` - Number of steps (default: 40)
+- `split=#` - Split percentage (default: 100)
+- `shrink[=#]` - Enable dictionary shrinking
+
+**Recommendations:**
+- `d` should typically be in range [6, 8]
+- `k` varies based on data, safe range is [2 * d, 2000]
+- `split=100` uses all samples for both training and testing
+
+```bash
+# Examples
+zstd --train-cover=k=50,d=8 samples/* -o dict
+zstd --train-cover=k=50,split=60 samples/* -o dict
+zstd --train-cover=shrink samples/* -o dict
+zstd --train-cover=shrink=2 samples/* -o dict
+```
+
+### Legacy Algorithm
+
+Older algorithm with selectivity parameter:
+
+```bash
+# Legacy training
+zstd --train-legacy samples/* -o dict
+
+# With selectivity (default: 9)
+zstd --train-legacy=s=8 samples/* -o dict
+zstd --train-legacy=selectivity=7 samples/* -o dict
+```
+
+Smaller selectivity values create denser dictionaries, improving efficiency but reducing maximum achievable size.
+
+## Dictionary ID
+
+### Automatic ID
+
+```bash
+# Random 4-byte ID (default)
+zstd --train samples/* -o dict
+```
+
+### Custom ID
+
+```bash
+# Specify dictionary ID
+zstd --train --dictID=100 samples/* -o dict
+zstd --train --dictID=65535 samples/* -o dict
+```
+
+<Note>
+Smaller IDs are more efficient:
+- ID < 256: 1 byte in compressed header
+- ID < 65536: 2 bytes in compressed header
+- Larger IDs: 4 bytes in compressed header
+</Note>
+
+<Warning>
+RFC8878 reserves IDs < 32768 and ≥ 2^31 for private use. Avoid these ranges for public dictionaries.
+</Warning>
+
+### Hide Dictionary ID
+
+```bash
+# Don't store dictionary ID in frame header
+zstd file.txt -D dict --no-dictID
+```
+
+Decoder must rely on implicit knowledge of which dictionary to use and cannot verify correctness.
+
+## Dictionary Compression
+
+### Compress Files
+
+```bash
+# Single file
+zstd file.txt -D dictionary
+
+# Multiple files
+zstd *.txt -D dictionary
+
+# Recursive
+zstd -r data/ -D dictionary
+```
+
+### Dictionary with Compression Levels
+
+```bash
+# Combine with compression levels
+zstd -19 -D dictionary file.txt
+zstd --ultra -22 -D dictionary file.txt
+```
+
+### Multi-threaded Dictionary Compression
+
+```bash
+# Use multiple threads
+zstd -T0 -D dictionary large-file.txt
+```
+
+<Note>
+Dictionary training supports multi-threading by default when zstd is compiled with threading support.
+</Note>
+
+## Memory-mapped Dictionaries
+
+```bash
+# Memory-map large dictionaries
+zstd file.txt -D large-dict --mmap-dict
+
+# For decompression too
+zstd -d file.txt.zst -D large-dict --mmap-dict
+```
+
+Memory-mapping is useful for very large dictionaries to avoid loading the entire dictionary into memory.
+
+## Patch-from Mode
+
+Special dictionary mode using a reference file:
+
+```bash
+# Use reference file as dictionary
+zstd --patch-from=reference.txt modified.txt
+```
+
+<Warning>
+Cannot use both `--patch-from` and `-D` together.
+</Warning>
+
+Patch-from is effectively dictionary compression with convenient parameter selection where `windowSize > srcSize`.
+
+**Notes:**
+- `--long` mode activates automatically if needed
+- Up to level 15: use `--single-thread` for better ratio at cost of speed
+- Above level 15: `--single-thread` reduces ratio
+- Level 19: increase ratio with `--zstd=targetLength=4096` and large `chainLog`
+
+## Benchmark with Dictionary
+
+```bash
+# Benchmark dictionary compression
+zstd -b -D dictionary samples/*
+
+# Test multiple levels
+zstd -b1e19 -D dictionary samples/*
+```
+
+## Examples
+
+### JSON Files
+
+```bash
+# Train dictionary for JSON files
+zstd --train json-samples/*.json -o json.dict
+
+# Compress JSON with dictionary
+zstd api-response.json -D json.dict
+```
+
+### Log Files
+
+```bash
+# Train from log samples
+zstd --train logs/sample-*.log --maxdict=256KB -o logs.dict
+
+# Compress logs
+zstd -r logs/ -D logs.dict --output-dir-flat compressed/
+```
+
+### Configuration Files
+
+```bash
+# Train on config files
+zstd --train-fastcover=d=8,f=20 config-samples/* -o config.dict
+
+# Compress with high compression + dictionary
+zstd -19 app.conf -D config.dict
+```

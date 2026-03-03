@@ -1,0 +1,297 @@
+---
+title: "C/C++ Integration"
+description: "Learn how to integrate Zstandard compression library into your C/C++ projects"
+---
+
+## Overview
+
+Zstandard provides a stable C API exposed through `lib/zstd.h`. The library can be integrated into C/C++ projects through static or dynamic linking.
+
+## Header Files
+
+### Main API Header
+
+The primary header file for Zstandard:
+
+```c
+#include <zstd.h>
+```
+
+This header provides access to the core compression and decompression functions.
+
+### Additional Headers
+
+For advanced functionality, include these headers:
+
+<CodeGroup>
+
+```c Error Handling
+#include <zstd_errors.h>  // Translates size_t results to ZSTD_ErrorCode
+```
+
+```c Dictionary Building
+#include <zdict.h>  // Dictionary builder API
+```
+
+</CodeGroup>
+
+### Experimental API Access
+
+To access experimental APIs, define the macro before including the header:
+
+```c
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+```
+
+<Warning>
+Experimental APIs should **never** be used with dynamic linking. They are unstable and may change in future versions. Only static linking is allowed.
+</Warning>
+
+## Linking
+
+### Dynamic Linking
+
+Link against the shared library:
+
+```bash
+gcc -o myapp myapp.c -lzstd
+```
+
+For multithreaded programs on POSIX systems:
+
+```bash
+gcc -o myapp myapp.c -lzstd -pthread
+```
+
+### Static Linking
+
+Link against the static library:
+
+```bash
+gcc -o myapp myapp.c libzstd.a
+```
+
+For multithreaded static builds on POSIX systems:
+
+```bash
+gcc -o myapp myapp.c libzstd.a -pthread
+```
+
+### Windows (MinGW)
+
+On Windows with MinGW, use:
+
+```bash
+gcc -Iinclude/ test-dll.c -o test-dll dll\libzstd.dll
+```
+
+The compiled executable will require `dll\libzstd.dll` at runtime.
+
+## Simple Integration Example
+
+### Basic Compression
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <zstd.h>
+
+void compress_data(const void* data, size_t dataSize)
+{
+    // Allocate buffer for compressed data
+    size_t const cBuffSize = ZSTD_compressBound(dataSize);
+    void* const cBuff = malloc(cBuffSize);
+    
+    // Compress with level 1
+    size_t const cSize = ZSTD_compress(cBuff, cBuffSize, data, dataSize, 1);
+    
+    // Check for errors
+    if (ZSTD_isError(cSize)) {
+        fprintf(stderr, "Compression error: %s\n", ZSTD_getErrorName(cSize));
+        free(cBuff);
+        return;
+    }
+    
+    printf("Compressed %zu bytes to %zu bytes\n", dataSize, cSize);
+    
+    // Use compressed data...
+    
+    free(cBuff);
+}
+```
+
+### Basic Decompression
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <zstd.h>
+
+void decompress_data(const void* cData, size_t cSize)
+{
+    // Get original size from frame header
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cData, cSize);
+    
+    if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+        fprintf(stderr, "Not compressed by zstd!\n");
+        return;
+    }
+    
+    if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+        fprintf(stderr, "Original size unknown!\n");
+        return;
+    }
+    
+    // Allocate buffer for decompressed data
+    void* const rBuff = malloc((size_t)rSize);
+    
+    // Decompress
+    size_t const dSize = ZSTD_decompress(rBuff, rSize, cData, cSize);
+    
+    if (ZSTD_isError(dSize)) {
+        fprintf(stderr, "Decompression error: %s\n", ZSTD_getErrorName(dSize));
+        free(rBuff);
+        return;
+    }
+    
+    printf("Decompressed %zu bytes to %zu bytes\n", cSize, dSize);
+    
+    // Use decompressed data...
+    
+    free(rBuff);
+}
+```
+
+## Context Reuse
+
+For multiple compressions, reuse contexts to minimize memory allocation:
+
+```c
+#include <zstd.h>
+
+void compress_multiple_files(const char** files, int numFiles)
+{
+    ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+    
+    for (int i = 0; i < numFiles; i++) {
+        // Load file data...
+        void* fileData;
+        size_t fileSize;
+        
+        size_t const cBuffSize = ZSTD_compressBound(fileSize);
+        void* const cBuff = malloc(cBuffSize);
+        
+        // Reuse context for each compression
+        size_t const cSize = ZSTD_compressCCtx(cctx, cBuff, cBuffSize, 
+                                                fileData, fileSize, 3);
+        
+        if (!ZSTD_isError(cSize)) {
+            // Save compressed data...
+        }
+        
+        free(cBuff);
+    }
+    
+    ZSTD_freeCCtx(cctx);
+}
+```
+
+## Multithreading
+
+### Enabling Multithreading
+
+Multithreading requires:
+
+1. Build macro: `-DZSTD_MULTITHREAD`
+2. POSIX systems: Link with pthread (`-pthread`)
+
+By default with Make:
+- Dynamic library: multithreaded
+- Static library: single-threaded
+
+### Force Multithreaded Build
+
+```bash
+make lib-mt
+```
+
+### Using Multithreaded Compression
+
+Multithreading is exposed via the advanced API in `lib/zstd.h`. Use `ZSTD_CCtx_setParameter()` with `ZSTD_c_nbWorkers` to control the number of threads.
+
+## Version Information
+
+Check library version at runtime:
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+
+int main(void)
+{
+    unsigned version = ZSTD_versionNumber();
+    const char* versionString = ZSTD_versionString();
+    
+    printf("Zstd version: %s (%u)\n", versionString, version);
+    return 0;
+}
+```
+
+## Error Handling
+
+All functions returning `size_t` can indicate errors:
+
+```c
+size_t result = ZSTD_compress(...);
+
+if (ZSTD_isError(result)) {
+    const char* errMsg = ZSTD_getErrorName(result);
+    fprintf(stderr, "Error: %s\n", errMsg);
+}
+```
+
+For detailed error codes, use `zstd_errors.h`:
+
+```c
+#include <zstd_errors.h>
+
+ZSTD_ErrorCode errCode = ZSTD_getErrorCode(result);
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+
+<Card title="Reuse Contexts" icon="recycle">
+For multiple operations, create contexts once and reuse them to reduce memory allocation overhead.
+</Card>
+
+<Card title="Check Errors" icon="triangle-exclamation">
+Always use `ZSTD_isError()` to check return values before using results.
+</Card>
+
+<Card title="Buffer Sizing" icon="expand">
+Use `ZSTD_compressBound()` to ensure the destination buffer is large enough for compression.
+</Card>
+
+<Card title="Static Linking" icon="link">
+Use static linking when accessing experimental APIs or advanced features.
+</Card>
+
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Build Systems" href="/integration/build-systems" icon="hammer">
+Learn how to integrate Zstandard with various build systems
+</Card>
+
+<Card title="Platform Support" href="/integration/platform-support" icon="server">
+Platform-specific integration instructions
+</Card>
+
+</CardGroup>

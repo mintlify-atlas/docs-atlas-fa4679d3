@@ -1,0 +1,226 @@
+---
+title: Dictionary Compression
+description: Compress data using pre-trained dictionaries for improved ratios on small files
+---
+
+Dictionary compression uses a pre-digested dictionary to improve compression ratios, especially for small files that share similar structure.
+
+## ZSTD_createCDict()
+
+Create a digested compression dictionary for reuse across multiple compression operations.
+
+```c
+ZSTD_CDict* ZSTD_createCDict(
+    const void* dictBuffer,
+    size_t dictSize,
+    int compressionLevel
+);
+```
+
+<ParamField path="dictBuffer" type="const void*">
+  Dictionary data (can be released after CDict creation, as content is copied internally).
+</ParamField>
+
+<ParamField path="dictSize" type="size_t">
+  Size of the dictionary buffer.
+</ParamField>
+
+<ParamField path="compressionLevel" type="int">
+  Compression level to use with this dictionary. This level will be used for all future compressions with this CDict.
+</ParamField>
+
+### Returns
+
+Pointer to the created `ZSTD_CDict`, or `NULL` on failure.
+
+### Notes
+
+- Digesting a dictionary is a costly operation; create once and reuse
+- The resulting CDict can be shared by multiple threads concurrently (read-only usage)
+- Dictionary content is copied into the CDict, so `dictBuffer` can be freed after creation
+- An empty dictionary can be created to transport only the compression level
+- Compression level is decided at dictionary creation time and cannot be changed
+
+### Example
+
+```c
+// Load dictionary from file
+size_t dictSize;
+void* dictBuffer = loadFile("mydict.zst", &dictSize);
+
+// Create CDict for compression level 3
+ZSTD_CDict* cdict = ZSTD_createCDict(dictBuffer, dictSize, 3);
+if (cdict == NULL) {
+    fprintf(stderr, "Failed to create CDict\n");
+    exit(1);
+}
+
+// Dictionary buffer can now be freed
+free(dictBuffer);
+
+// Use cdict for multiple compressions...
+
+// Clean up when done
+ZSTD_freeCDict(cdict);
+```
+
+---
+
+## ZSTD_compress_usingCDict()
+
+Compress data using a digested dictionary.
+
+```c
+size_t ZSTD_compress_usingCDict(
+    ZSTD_CCtx* cctx,
+    void* dst,
+    size_t dstCapacity,
+    const void* src,
+    size_t srcSize,
+    const ZSTD_CDict* cdict
+);
+```
+
+<ParamField path="cctx" type="ZSTD_CCtx*">
+  Compression context (create with `ZSTD_createCCtx()`).
+</ParamField>
+
+<ParamField path="dst" type="void*">
+  Destination buffer for compressed data.
+</ParamField>
+
+<ParamField path="dstCapacity" type="size_t">
+  Size of destination buffer. Use `ZSTD_compressBound(srcSize)` to guarantee sufficient space.
+</ParamField>
+
+<ParamField path="src" type="const void*">
+  Source data to compress.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of source data.
+</ParamField>
+
+<ParamField path="cdict" type="const ZSTD_CDict*">
+  Pre-created compression dictionary.
+</ParamField>
+
+### Returns
+
+Compressed size written into `dst` (&lt;= `dstCapacity`), or an error code which can be tested with `ZSTD_isError()`.
+
+### Frame Parameters
+
+This function writes the following into the frame header:
+- Dictionary ID: yes
+- Content size: yes
+- Checksum: no
+
+Use the advanced API (`ZSTD_CCtx_setParameter()`, `ZSTD_CCtx_refCDict()`, and `ZSTD_compress2()`) for more control.
+
+### Example
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <zstd.h>
+
+// Helper function from examples/dictionary_compression.c
+static ZSTD_CDict* createCDict(const char* dictFileName, int cLevel)
+{
+    size_t dictSize;
+    void* dictBuffer = loadFile(dictFileName, &dictSize);
+    ZSTD_CDict* cdict = ZSTD_createCDict(dictBuffer, dictSize, cLevel);
+    free(dictBuffer);
+    return cdict;
+}
+
+static void compress(const char* fname, const char* oname,
+                     const ZSTD_CDict* cdict)
+{
+    size_t fSize;
+    void* fBuff = loadFile(fname, &fSize);
+    size_t cBuffSize = ZSTD_compressBound(fSize);
+    void* cBuff = malloc(cBuffSize);
+
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    size_t cSize = ZSTD_compress_usingCDict(
+        cctx, cBuff, cBuffSize,
+        fBuff, fSize, cdict
+    );
+
+    if (ZSTD_isError(cSize)) {
+        fprintf(stderr, "Compression error: %s\n",
+                ZSTD_getErrorName(cSize));
+    } else {
+        saveFile(oname, cBuff, cSize);
+        printf("%s : %zu -> %zu\n", fname, fSize, cSize);
+    }
+
+    ZSTD_freeCCtx(cctx);
+    free(fBuff);
+    free(cBuff);
+}
+
+int main(int argc, char** argv)
+{
+    // Load dictionary once
+    ZSTD_CDict* dictPtr = createCDict("mydict.zst", 3);
+
+    // Compress multiple files using the same dictionary
+    for (int i = 1; i < argc; i++) {
+        compress(argv[i], "output.zst", dictPtr);
+    }
+
+    ZSTD_freeCDict(dictPtr);
+    return 0;
+}
+```
+
+---
+
+## ZSTD_freeCDict()
+
+Free memory allocated by `ZSTD_createCDict()`.
+
+```c
+size_t ZSTD_freeCDict(ZSTD_CDict* cdict);
+```
+
+<ParamField path="cdict" type="ZSTD_CDict*">
+  Dictionary to free. Passing NULL is safe and performs no operation.
+</ParamField>
+
+### Returns
+
+Always returns 0.
+
+---
+
+## Advanced API
+
+For more control over dictionary compression, use the advanced API:
+
+### ZSTD_CCtx_refCDict()
+
+Reference a prepared dictionary for all future compressed frames.
+
+```c
+size_t ZSTD_CCtx_refCDict(ZSTD_CCtx* cctx, const ZSTD_CDict* cdict);
+```
+
+Compression parameters from the CDict supersede any previously set parameters in the CCtx. Use with `ZSTD_compress2()` for more control.
+
+### ZSTD_CCtx_loadDictionary()
+
+Load a dictionary directly into a compression context.
+
+```c
+size_t ZSTD_CCtx_loadDictionary(
+    ZSTD_CCtx* cctx,
+    const void* dict,
+    size_t dictSize
+);
+```
+
+Creates an internal CDict from the dictionary buffer. The dictionary remains sticky and will be used for all future frames until reset or replaced.

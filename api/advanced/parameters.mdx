@@ -1,0 +1,321 @@
+---
+title: Compression Parameters
+description: Control compression behavior with ZSTD_CCtx_setParameter() and advanced parameter tuning
+---
+
+The advanced compression API allows fine-grained control over compression behavior by setting individual parameters on a compression context.
+
+## Setting Parameters
+
+### ZSTD_CCtx_setParameter()
+
+Set one compression parameter on a context.
+
+```c
+size_t ZSTD_CCtx_setParameter(ZSTD_CCtx* cctx, 
+                              ZSTD_cParameter param, 
+                              int value);
+```
+
+**Parameters:**
+- `cctx` - Compression context
+- `param` - Parameter to set (from `ZSTD_cParameter` enum)
+- `value` - Parameter value
+
+**Returns:** Error code (test with `ZSTD_isError()`)
+
+**Notes:**
+- Parameters are sticky - they remain valid for all following frames
+- Setting parameters is generally only possible during frame initialization
+- Exception: In multi-threading mode (`nbWorkers >= 1`), these parameters can be updated during compression: `compressionLevel`, `hashLog`, `chainLog`, `searchLog`, `minMatch`, `targetLength`, `strategy`
+
+**Example:**
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+// Set compression level
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 5);
+
+// Set window size (as power of 2)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 20);
+
+// Enable checksums
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+ZSTD_compress2(cctx, dst, dstCapacity, src, srcSize);
+ZSTD_freeCCtx(cctx);
+```
+
+### ZSTD_cParam_getBounds()
+
+Query valid bounds for a parameter.
+
+```c
+ZSTD_bounds ZSTD_cParam_getBounds(ZSTD_cParameter cParam);
+```
+
+**Returns:** `ZSTD_bounds` structure containing:
+- `error` - Error status (test with `ZSTD_isError()`)
+- `lowerBound` - Minimum valid value (inclusive)
+- `upperBound` - Maximum valid value (inclusive)
+
+**Example:**
+
+```c
+ZSTD_bounds bounds = ZSTD_cParam_getBounds(ZSTD_c_windowLog);
+if (!ZSTD_isError(bounds.error)) {
+    printf("windowLog range: [%d, %d]\n", 
+           bounds.lowerBound, bounds.upperBound);
+}
+```
+
+## Compression Parameters
+
+### Basic Parameters
+
+#### ZSTD_c_compressionLevel (100)
+
+Set compression level according to pre-defined table.
+
+- **Default:** `ZSTD_CLEVEL_DEFAULT` (3)
+- **Range:** Negative levels to `ZSTD_maxCLevel()` (currently 22)
+- **Special:** Value 0 means default
+- **Note:** Levels ≥ 20 (labeled `--ultra`) require more memory
+
+#### ZSTD_c_windowLog (101)
+
+Maximum back-reference distance, expressed as power of 2.
+
+- **Effect:** Sets memory budget for streaming decompression
+- **Range:** `ZSTD_WINDOWLOG_MIN` (10) to `ZSTD_WINDOWLOG_MAX` (30-31 depending on platform)
+- **Special:** Value 0 means "use default windowLog"
+- **Note:** Using windowLog > 27 requires explicitly allowing such size at decompression stage
+
+#### ZSTD_c_hashLog (102)
+
+Size of the initial probe table, as power of 2.
+
+- **Memory usage:** `1 << (hashLog + 2)` bytes
+- **Range:** `ZSTD_HASHLOG_MIN` (6) to `ZSTD_HASHLOG_MAX` (30)
+- **Effect:** Larger tables improve compression ratio of strategies ≤ dFast, and improve speed of strategies > dFast
+- **Special:** Value 0 means "use default hashLog"
+
+#### ZSTD_c_chainLog (103)
+
+Size of the multi-probe search table, as power of 2.
+
+- **Memory usage:** `1 << (chainLog + 2)` bytes
+- **Range:** `ZSTD_CHAINLOG_MIN` to `ZSTD_CHAINLOG_MAX` (29-30 depending on platform)
+- **Effect:** Larger tables result in better and slower compression
+- **Note:** Useless for "fast" strategy; defines secondary probe table for "dfast"
+- **Special:** Value 0 means "use default chainLog"
+
+#### ZSTD_c_searchLog (104)
+
+Number of search attempts, as power of 2.
+
+- **Effect:** More attempts result in better and slower compression
+- **Note:** Useless for "fast" and "dFast" strategies
+- **Special:** Value 0 means "use default searchLog"
+
+#### ZSTD_c_minMatch (105)
+
+Minimum size of searched matches.
+
+- **Range:** `ZSTD_MINMATCH_MIN` (3) to `ZSTD_MINMATCH_MAX` (7)
+- **Effect:** Larger values increase compression and decompression speed, but decrease ratio
+- **Note:** For strategies < btopt, effective minimum is 4; for strategies > fast, effective maximum is 6
+- **Special:** Value 0 means "use default minMatchLength"
+
+#### ZSTD_c_targetLength (106)
+
+Impact depends on strategy:
+
+- **For btopt, btultra, btultra2:** Length of match considered "good enough" to stop search. Larger = stronger, slower
+- **For fast:** Distance between match sampling. Larger = faster, weaker
+- **Special:** Value 0 means "use default targetLength"
+
+#### ZSTD_c_strategy (107)
+
+Compression strategy (see Compression Strategies below).
+
+- **Range:** `ZSTD_fast` (1) to `ZSTD_btultra2` (9)
+- **Effect:** Higher values = more complex, stronger, and slower compression
+- **Special:** Value 0 means "use default strategy"
+
+### Compression Strategies
+
+Strategies listed from fastest to strongest:
+
+| Strategy | Value | Description |
+|----------|-------|-------------|
+| `ZSTD_fast` | 1 | Fastest strategy |
+| `ZSTD_dfast` | 2 | Fast with double hash table |
+| `ZSTD_greedy` | 3 | Greedy search |
+| `ZSTD_lazy` | 4 | Lazy search |
+| `ZSTD_lazy2` | 5 | Lazy search with step 2 |
+| `ZSTD_btlazy2` | 6 | Binary tree lazy search |
+| `ZSTD_btopt` | 7 | Binary tree optimal parser |
+| `ZSTD_btultra` | 8 | Binary tree ultra mode |
+| `ZSTD_btultra2` | 9 | Strongest strategy |
+
+**Example:**
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btopt);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_targetLength, 64);
+```
+
+### Frame Parameters
+
+#### ZSTD_c_contentSizeFlag (200)
+
+Write content size into frame header when known.
+
+- **Default:** 1 (enabled)
+- **Note:** With `ZSTD_compress2()`, content size is automatically known
+- **Note:** For streaming, use `ZSTD_CCtx_setPledgedSrcSize()`
+
+#### ZSTD_c_checksumFlag (201)
+
+Write 32-bit checksum at end of frame.
+
+- **Default:** 0 (disabled)
+- **Effect:** Enables error detection at decompression
+
+#### ZSTD_c_dictIDFlag (202)
+
+Write dictionary ID into frame header.
+
+- **Default:** 1 (enabled)
+- **Note:** Only applicable when using a dictionary
+
+### Long Distance Matching (LDM)
+
+#### ZSTD_c_enableLongDistanceMatching (160)
+
+Enable long distance matching for large inputs.
+
+- **Default:** 0, or auto-enabled if windowLog ≥ 128 MB and strategy ≥ `ZSTD_btopt`
+- **Effect:** Improves compression ratio for large inputs by finding large matches at long distances
+- **Side effect:** Increases memory usage and default windowLog to 128 MB
+
+#### ZSTD_c_ldmHashLog (161)
+
+Size of LDM hash table, as power of 2.
+
+- **Range:** `ZSTD_HASHLOG_MIN` to `ZSTD_HASHLOG_MAX`
+- **Default:** windowLog - 7
+- **Effect:** Larger values increase memory usage and compression ratio, but decrease speed
+- **Special:** Value 0 means "automatically determine hashlog"
+
+#### ZSTD_c_ldmMinMatch (162)
+
+Minimum match size for long distance matcher.
+
+- **Range:** `ZSTD_LDM_MINMATCH_MIN` (4) to `ZSTD_LDM_MINMATCH_MAX` (4096)
+- **Default:** 64
+- **Special:** Value 0 means "use default value"
+
+#### ZSTD_c_ldmBucketSizeLog (163)
+
+Log size of each bucket in LDM hash table.
+
+- **Range:** 0 to `ZSTD_LDM_BUCKETSIZELOG_MAX` (8)
+- **Default:** 3
+- **Effect:** Larger values improve collision resolution but decrease speed
+- **Special:** Value 0 means "use default value"
+
+#### ZSTD_c_ldmHashRateLog (164)
+
+Frequency of inserting/looking up entries in LDM hash table.
+
+- **Range:** 0 to (ZSTD_WINDOWLOG_MAX - ZSTD_HASHLOG_MIN)
+- **Default:** MAX(0, windowLog - ldmHashLog)
+- **Effect:** Larger values improve compression speed
+- **Special:** Value 0 means "automatically determine hashRateLog"
+
+### Multi-threading Parameters
+
+#### ZSTD_c_nbWorkers (400)
+
+Number of threads for parallel compression.
+
+- **Default:** 0 (single-threaded)
+- **Effect:** When ≥ 1, enables asynchronous mode
+- **Note:** Requires library compiled with `ZSTD_MULTITHREAD`
+- **Effect:** More workers improve speed but increase memory usage
+
+#### ZSTD_c_jobSize (401)
+
+Size of a compression job in multi-threaded mode.
+
+- **Default:** 0 (dynamically determined)
+- **Minimum:** Overlap size or 512 KB, whichever is largest
+- **Note:** Only enforced when `nbWorkers >= 1`
+
+#### ZSTD_c_overlapLog (402)
+
+Overlap size as fraction of window size in multi-threaded mode.
+
+- **Range:** 0-9
+- **0:** Default (library determines based on strategy)
+- **1:** No overlap
+- **9:** Full overlap (full window size)
+- **Effect:** Larger values increase compression ratio but decrease speed
+- **Note:** Only enforced when `nbWorkers >= 1`
+
+### Advanced Parameters
+
+#### ZSTD_c_targetCBlockSize (130)
+
+Target compressed block size (v1.5.6+).
+
+- **Range:** `ZSTD_TARGETCBLOCKSIZE_MIN` (1340) to `ZSTD_TARGETCBLOCKSIZE_MAX`
+- **Default:** 0 (no target)
+- **Effect:** Attempts to fit compressed blocks into approximately this size
+- **Use case:** Low bandwidth streaming to improve end-to-end latency
+
+## Complete Example
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int compress_with_custom_params(const void* src, size_t srcSize,
+                                void* dst, size_t dstCapacity) {
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    if (!cctx) return -1;
+    
+    // Set custom parameters
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 9);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 23);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btopt);
+    
+    // Enable LDM for large inputs
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmMinMatch, 128);
+    
+    // Compress
+    size_t cSize = ZSTD_compress2(cctx, dst, dstCapacity, src, srcSize);
+    
+    ZSTD_freeCCtx(cctx);
+    
+    if (ZSTD_isError(cSize)) {
+        fprintf(stderr, "Compression error: %s\n", 
+                ZSTD_getErrorName(cSize));
+        return -1;
+    }
+    
+    return cSize;
+}
+```
+
+## See Also
+
+- [Error Handling](/api/advanced/error-handling) - Error detection and reporting
+- [Memory Management](/api/advanced/memory-management) - Buffer sizing and memory estimation

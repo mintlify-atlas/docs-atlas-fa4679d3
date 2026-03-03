@@ -1,0 +1,557 @@
+---
+title: Memory Management
+description: Estimate memory requirements, calculate buffer sizes, and reuse compression contexts
+---
+
+Proper memory management is essential for efficient Zstandard compression and decompression. This guide covers buffer sizing, memory estimation, and context reuse.
+
+## Buffer Sizing
+
+### ZSTD_compressBound()
+
+Calculate maximum compressed size in worst case scenario.
+
+```c
+size_t ZSTD_compressBound(size_t srcSize);
+```
+
+**Parameters:**
+- `srcSize` - Size of uncompressed data
+
+**Returns:** Maximum possible compressed size, or error code if `srcSize >= ZSTD_MAX_INPUT_SIZE`
+
+**Note:** Providing `dstCapacity >= ZSTD_compressBound(srcSize)` guarantees enough space for compression to succeed (barring other errors).
+
+**Example:**
+
+```c
+size_t srcSize = 1024 * 1024;  // 1 MB
+size_t maxCompressedSize = ZSTD_compressBound(srcSize);
+
+if (ZSTD_isError(maxCompressedSize)) {
+    fprintf(stderr, "Source size too large\n");
+    return -1;
+}
+
+void* dst = malloc(maxCompressedSize);
+size_t cSize = ZSTD_compress(dst, maxCompressedSize, src, srcSize, 3);
+```
+
+### ZSTD_COMPRESSBOUND Macro
+
+Compile-time version of `ZSTD_compressBound()` for static allocation.
+
+```c
+#define ZSTD_COMPRESSBOUND(srcSize) \
+    (((size_t)(srcSize) >= ZSTD_MAX_INPUT_SIZE) ? 0 : \
+     (srcSize) + ((srcSize)>>8) + \
+     (((srcSize) < (128<<10)) ? (((128<<10) - (srcSize)) >> 11) : 0))
+```
+
+**Example:**
+
+```c
+#define MY_BUFFER_SIZE (128 * 1024)  // 128 KB
+char compressedBuffer[ZSTD_COMPRESSBOUND(MY_BUFFER_SIZE)];
+```
+
+### Maximum Input Size
+
+```c
+#define ZSTD_MAX_INPUT_SIZE \
+    ((sizeof(size_t)==8) ? 0xFF00FF00FF00FF00ULL : 0xFF00FF00U)
+```
+
+Maximum size of input data for compression.
+
+### Decompression Buffer Sizing
+
+#### ZSTD_getFrameContentSize()
+
+Get the decompressed size from frame header.
+
+```c
+unsigned long long ZSTD_getFrameContentSize(const void* src, size_t srcSize);
+```
+
+**Parameters:**
+- `src` - Pointer to beginning of ZSTD frame
+- `srcSize` - Size of buffer (must be ≥ frame header size)
+
+**Returns:**
+- Decompressed size in bytes (when available)
+- `ZSTD_CONTENTSIZE_UNKNOWN` (0xFFFFFFFFFFFFFFFFULL - 1) - Size not encoded in frame
+- `ZSTD_CONTENTSIZE_ERROR` (0xFFFFFFFFFFFFFFFFULL - 2) - Error occurred
+
+**Note:** Return value is not compatible with `ZSTD_isError()`.
+
+**Example:**
+
+```c
+unsigned long long decompSize = ZSTD_getFrameContentSize(compressedData, compressedSize);
+
+if (decompSize == ZSTD_CONTENTSIZE_ERROR) {
+    fprintf(stderr, "Invalid frame or srcSize too small\n");
+    return -1;
+}
+
+if (decompSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+    fprintf(stderr, "Decompressed size unknown, use streaming\n");
+    return -1;
+}
+
+void* decompressedData = malloc(decompSize);
+size_t dSize = ZSTD_decompress(decompressedData, decompSize, 
+                               compressedData, compressedSize);
+```
+
+#### ZSTD_findFrameCompressedSize()
+
+Find the compressed size of a frame.
+
+```c
+size_t ZSTD_findFrameCompressedSize(const void* src, size_t srcSize);
+```
+
+**Parameters:**
+- `src` - Pointer to start of ZSTD frame or skippable frame
+- `srcSize` - Must be ≥ first frame size
+
+**Returns:** Compressed size of the first frame, suitable for `ZSTD_decompress()`, or error code
+
+**Note:** May need to scan through frame content to reach its end.
+
+## Streaming Buffer Sizes
+
+### Compression Buffers
+
+#### ZSTD_CStreamInSize()
+
+Recommended size for input buffer.
+
+```c
+size_t ZSTD_CStreamInSize(void);
+```
+
+**Returns:** Recommended input buffer size (currently 128 KB)
+
+#### ZSTD_CStreamOutSize()
+
+Recommended size for output buffer.
+
+```c
+size_t ZSTD_CStreamOutSize(void);
+```
+
+**Returns:** Recommended output buffer size that guarantees successful flush of at least one complete compressed block
+
+**Example:**
+
+```c
+size_t const inBuffSize = ZSTD_CStreamInSize();
+size_t const outBuffSize = ZSTD_CStreamOutSize();
+
+void* inBuff = malloc(inBuffSize);
+void* outBuff = malloc(outBuffSize);
+
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+// Use for streaming compression...
+```
+
+### Decompression Buffers
+
+#### ZSTD_DStreamInSize()
+
+Recommended size for input buffer.
+
+```c
+size_t ZSTD_DStreamInSize(void);
+```
+
+**Returns:** Recommended input buffer size
+
+#### ZSTD_DStreamOutSize()
+
+Recommended size for output buffer.
+
+```c
+size_t ZSTD_DStreamOutSize(void);
+```
+
+**Returns:** Recommended output buffer size that guarantees successful flush of at least one complete block
+
+## Memory Estimation
+
+### Compression Context Size
+
+#### ZSTD_estimateCCtxSize()
+
+Estimate memory for compression context.
+
+```c
+size_t ZSTD_estimateCCtxSize(int maxCompressionLevel);
+```
+
+**Parameters:**
+- `maxCompressionLevel` - Maximum compression level that will be used
+
+**Returns:** Estimated memory requirement in bytes
+
+**Note:** Estimate assumes input may be arbitrarily large and is for single-threaded compression only.
+
+#### ZSTD_estimateCCtxSize_usingCParams()
+
+Estimate memory using compression parameters.
+
+```c
+size_t ZSTD_estimateCCtxSize_usingCParams(ZSTD_compressionParameters cParams);
+```
+
+**Parameters:**
+- `cParams` - Compression parameters structure
+
+**Returns:** Estimated memory requirement in bytes
+
+#### ZSTD_estimateCCtxSize_usingCCtxParams()
+
+Estimate memory using context parameters.
+
+```c
+size_t ZSTD_estimateCCtxSize_usingCCtxParams(const ZSTD_CCtx_params* params);
+```
+
+**Returns:** Estimated memory requirement, or error if `ZSTD_c_nbWorkers >= 1`
+
+**Example:**
+
+```c
+size_t memBudget = ZSTD_estimateCCtxSize(9);
+printf("Compression at level 9 requires ~%zu bytes\n", memBudget);
+
+ZSTD_compressionParameters cParams = ZSTD_getCParams(9, 0, 0);
+size_t exactMem = ZSTD_estimateCCtxSize_usingCParams(cParams);
+printf("Exact estimate: %zu bytes\n", exactMem);
+```
+
+### Decompression Context Size
+
+#### ZSTD_estimateDCtxSize()
+
+Estimate memory for decompression context.
+
+```c
+size_t ZSTD_estimateDCtxSize(void);
+```
+
+**Returns:** Estimated memory requirement in bytes
+
+### Streaming Context Size
+
+#### ZSTD_estimateCStreamSize()
+
+Estimate memory for compression streaming.
+
+```c
+size_t ZSTD_estimateCStreamSize(int maxCompressionLevel);
+```
+
+**Note:** For single-threaded compression only. Returns error if `ZSTD_c_nbWorkers >= 1`.
+
+#### ZSTD_estimateCStreamSize_usingCParams()
+
+```c
+size_t ZSTD_estimateCStreamSize_usingCParams(ZSTD_compressionParameters cParams);
+```
+
+#### ZSTD_estimateCStreamSize_usingCCtxParams()
+
+```c
+size_t ZSTD_estimateCStreamSize_usingCCtxParams(const ZSTD_CCtx_params* params);
+```
+
+#### ZSTD_estimateDStreamSize()
+
+Estimate memory for decompression streaming.
+
+```c
+size_t ZSTD_estimateDStreamSize(size_t maxWindowSize);
+```
+
+**Parameters:**
+- `maxWindowSize` - Maximum window size for frames to decompress
+
+#### ZSTD_estimateDStreamSize_fromFrame()
+
+Estimate memory from frame header.
+
+```c
+size_t ZSTD_estimateDStreamSize_fromFrame(const void* src, size_t srcSize);
+```
+
+### Dictionary Size Estimation
+
+#### ZSTD_estimateCDictSize()
+
+Estimate memory for compression dictionary.
+
+```c
+size_t ZSTD_estimateCDictSize(size_t dictSize, int compressionLevel);
+```
+
+**Note:** Assumes dictionary content is copied (like `ZSTD_createCDict()`).
+
+#### ZSTD_estimateCDictSize_advanced()
+
+```c
+size_t ZSTD_estimateCDictSize_advanced(size_t dictSize, 
+                                       ZSTD_compressionParameters cParams,
+                                       ZSTD_dictLoadMethod_e dictLoadMethod);
+```
+
+**Parameters:**
+- `dictSize` - Size of dictionary
+- `cParams` - Compression parameters
+- `dictLoadMethod` - `ZSTD_dlm_byCopy` or `ZSTD_dlm_byRef`
+
+#### ZSTD_estimateDDictSize()
+
+Estimate memory for decompression dictionary.
+
+```c
+size_t ZSTD_estimateDDictSize(size_t dictSize, 
+                              ZSTD_dictLoadMethod_e dictLoadMethod);
+```
+
+## Context Size Queries
+
+Get actual current memory usage of objects:
+
+```c
+size_t ZSTD_sizeof_CCtx(const ZSTD_CCtx* cctx);
+size_t ZSTD_sizeof_DCtx(const ZSTD_DCtx* dctx);
+size_t ZSTD_sizeof_CStream(const ZSTD_CStream* zcs);
+size_t ZSTD_sizeof_DStream(const ZSTD_DStream* zds);
+size_t ZSTD_sizeof_CDict(const ZSTD_CDict* cdict);
+size_t ZSTD_sizeof_DDict(const ZSTD_DDict* ddict);
+```
+
+**Note:** Memory usage can evolve (increase or decrease) over time.
+
+**Example:**
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+size_t initialSize = ZSTD_sizeof_CCtx(cctx);
+
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 25);
+size_t afterConfig = ZSTD_sizeof_CCtx(cctx);
+
+printf("Initial: %zu bytes, After config: %zu bytes\n",
+       initialSize, afterConfig);
+```
+
+## Context Reuse
+
+### Benefits of Context Reuse
+
+Reusing contexts provides significant performance benefits:
+
+1. **Avoids allocation overhead** - No repeated malloc/free
+2. **Reuses internal buffers** - Memory already allocated
+3. **Better cache locality** - Same memory regions used
+4. **Reduces memory fragmentation**
+
+### Compression Context Reuse
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+// Compress multiple buffers
+for (int i = 0; i < numBuffers; i++) {
+    size_t cSize = ZSTD_compress2(cctx, 
+                                  dst, dstCapacity,
+                                  sources[i], sourceSizes[i]);
+    if (ZSTD_isError(cSize)) {
+        fprintf(stderr, "Error: %s\n", ZSTD_getErrorName(cSize));
+        break;
+    }
+    // Process compressed data...
+}
+
+ZSTD_freeCCtx(cctx);
+```
+
+### Resetting Contexts
+
+#### ZSTD_CCtx_reset()
+
+Reset compression context to clean state.
+
+```c
+size_t ZSTD_CCtx_reset(ZSTD_CCtx* cctx, ZSTD_ResetDirective reset);
+```
+
+**Reset directives:**
+- `ZSTD_reset_session_only` (1) - Stop current compression, keep parameters
+- `ZSTD_reset_parameters` (2) - Reset parameters to default (no compression must be ongoing)
+- `ZSTD_reset_session_and_parameters` (3) - Reset both
+
+**Example:**
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+// Set parameters
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 9);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+// Compress first file
+ZSTD_compress2(cctx, dst1, dstCap1, src1, srcSize1);
+
+// Reset session only - keeps parameters
+ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+
+// Compress second file with same parameters
+ZSTD_compress2(cctx, dst2, dstCap2, src2, srcSize2);
+
+// Reset everything
+ZSTD_CCtx_reset(cctx, ZSTD_reset_session_and_parameters);
+
+ZSTD_freeCCtx(cctx);
+```
+
+#### ZSTD_DCtx_reset()
+
+Reset decompression context.
+
+```c
+size_t ZSTD_DCtx_reset(ZSTD_DCtx* dctx, ZSTD_ResetDirective reset);
+```
+
+### Streaming Context Reuse
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 5);
+
+for (int i = 0; i < numFiles; i++) {
+    // Reset for new frame
+    ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+    
+    // Stream compress file
+    FILE* fin = fopen(files[i], "rb");
+    // ... streaming compression loop ...
+    fclose(fin);
+}
+
+ZSTD_freeCCtx(cctx);
+```
+
+## Complete Example
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct {
+    ZSTD_CCtx* cctx;
+    void* inBuff;
+    void* outBuff;
+    size_t inBuffSize;
+    size_t outBuffSize;
+} CompressionContext;
+
+CompressionContext* create_compression_context(int level) {
+    CompressionContext* ctx = malloc(sizeof(CompressionContext));
+    if (!ctx) return NULL;
+    
+    // Estimate memory requirements
+    size_t ctxSize = ZSTD_estimateCCtxSize(level);
+    printf("Estimated context size: %zu bytes\n", ctxSize);
+    
+    // Create context
+    ctx->cctx = ZSTD_createCCtx();
+    if (!ctx->cctx) {
+        free(ctx);
+        return NULL;
+    }
+    
+    // Allocate buffers
+    ctx->inBuffSize = ZSTD_CStreamInSize();
+    ctx->outBuffSize = ZSTD_CStreamOutSize();
+    ctx->inBuff = malloc(ctx->inBuffSize);
+    ctx->outBuff = malloc(ctx->outBuffSize);
+    
+    if (!ctx->inBuff || !ctx->outBuff) {
+        free(ctx->inBuff);
+        free(ctx->outBuff);
+        ZSTD_freeCCtx(ctx->cctx);
+        free(ctx);
+        return NULL;
+    }
+    
+    // Configure context
+    ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_compressionLevel, level);
+    ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_checksumFlag, 1);
+    
+    // Check actual size
+    size_t actualSize = ZSTD_sizeof_CCtx(ctx->cctx);
+    printf("Actual context size: %zu bytes\n", actualSize);
+    
+    return ctx;
+}
+
+void free_compression_context(CompressionContext* ctx) {
+    if (!ctx) return;
+    free(ctx->inBuff);
+    free(ctx->outBuff);
+    ZSTD_freeCCtx(ctx->cctx);
+    free(ctx);
+}
+
+int compress_buffer(CompressionContext* ctx,
+                   const void* src, size_t srcSize,
+                   void** dstPtr, size_t* dstSizePtr) {
+    // Calculate required output size
+    size_t maxCompressed = ZSTD_compressBound(srcSize);
+    if (ZSTD_isError(maxCompressed)) {
+        return -1;
+    }
+    
+    // Allocate output buffer
+    *dstPtr = malloc(maxCompressed);
+    if (!*dstPtr) return -1;
+    
+    // Reset context for new compression
+    ZSTD_CCtx_reset(ctx->cctx, ZSTD_reset_session_only);
+    
+    // Compress
+    size_t cSize = ZSTD_compress2(ctx->cctx, *dstPtr, maxCompressed,
+                                  src, srcSize);
+    if (ZSTD_isError(cSize)) {
+        free(*dstPtr);
+        *dstPtr = NULL;
+        return -1;
+    }
+    
+    *dstSizePtr = cSize;
+    return 0;
+}
+```
+
+## Best Practices
+
+1. **Use ZSTD_compressBound()** - Always allocate sufficient output buffer
+2. **Reuse contexts** - Create once, use many times for better performance
+3. **Estimate memory** - Use estimation functions for memory budgeting
+4. **Check actual usage** - Use `ZSTD_sizeof_*()` to monitor real memory consumption
+5. **Reset between operations** - Use `ZSTD_CCtx_reset()` for clean state
+6. **Use recommended buffer sizes** - Call `ZSTD_CStreamInSize()` / `ZSTD_CStreamOutSize()` for streaming
+7. **Query frame size** - Use `ZSTD_getFrameContentSize()` when available
+8. **Handle CONTENTSIZE_UNKNOWN** - Be prepared for streaming decompression
+
+## See Also
+
+- [Compression Parameters](/api/advanced/parameters) - Configure compression behavior
+- [Error Handling](/api/advanced/error-handling) - Detect and handle errors

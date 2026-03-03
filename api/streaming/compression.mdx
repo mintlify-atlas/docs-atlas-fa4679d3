@@ -1,0 +1,133 @@
+---
+title: "Streaming Compression"
+description: "Functions for compressing data in a streaming fashion using Zstandard"
+---
+
+Streaming compression allows you to compress data incrementally without loading the entire input into memory. This is useful for compressing large files or data streams.
+
+## ZSTD_compressStream2()
+
+Behaves like ZSTD_compressStream with additional control over end directives. This is the recommended streaming compression function since v1.4.0+.
+
+```c
+size_t ZSTD_compressStream2(
+    ZSTD_CCtx* cctx,
+    ZSTD_outBuffer* output,
+    ZSTD_inBuffer* input,
+    ZSTD_EndDirective endOp
+);
+```
+
+<ParamField path="cctx" type="ZSTD_CCtx*" required>
+  Compression context created with `ZSTD_createCCtx()`
+</ParamField>
+
+<ParamField path="output" type="ZSTD_outBuffer*" required>
+  Output buffer structure. The function updates `output->pos` to indicate how much data was written
+</ParamField>
+
+<ParamField path="input" type="ZSTD_inBuffer*" required>
+  Input buffer structure. The function updates `input->pos` to indicate how much data was consumed
+</ParamField>
+
+<ParamField path="endOp" type="ZSTD_EndDirective" required>
+  Compression directive:
+  - `ZSTD_e_continue` - Collect more data, optimal compression ratio
+  - `ZSTD_e_flush` - Flush any data provided so far, creates decodable blocks
+  - `ZSTD_e_end` - Flush remaining data and close current frame
+</ParamField>
+
+### Returns
+
+- Returns a minimum amount of data remaining to be flushed from internal buffers
+- For `ZSTD_e_end`, returns 0 when the frame is completely flushed
+- Returns an error code if it fails (test with `ZSTD_isError()`)
+
+### Usage
+
+```c
+#include <zstd.h>
+
+// Create context and set parameters
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 3);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+// Prepare buffers
+size_t const buffInSize = ZSTD_CStreamInSize();
+void* buffIn = malloc(buffInSize);
+size_t const buffOutSize = ZSTD_CStreamOutSize();
+void* buffOut = malloc(buffOutSize);
+
+// Compression loop
+size_t read = fread(buffIn, 1, buffInSize, fin);
+int lastChunk = (read < buffInSize);
+ZSTD_EndDirective mode = lastChunk ? ZSTD_e_end : ZSTD_e_continue;
+
+ZSTD_inBuffer input = { buffIn, read, 0 };
+int finished;
+do {
+    ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+    size_t remaining = ZSTD_compressStream2(cctx, &output, &input, mode);
+    if (ZSTD_isError(remaining)) {
+        // Handle error
+    }
+    fwrite(buffOut, 1, output.pos, fout);
+    finished = lastChunk ? (remaining == 0) : (input.pos == input.size);
+} while (!finished);
+
+// Cleanup
+ZSTD_freeCCtx(cctx);
+free(buffIn);
+free(buffOut);
+```
+
+<Note>
+  When `nbWorkers==0` (default), the function is blocking and completes before returning. When `nbWorkers>=1`, the function is non-blocking and distributes work to internal threads.
+</Note>
+
+## ZSTD_CStreamInSize()
+
+Returns the recommended size for the input buffer.
+
+```c
+size_t ZSTD_CStreamInSize(void);
+```
+
+### Returns
+
+Recommended size for input buffer in bytes. This is not required but helps optimize performance by reducing memory shuffling and buffering.
+
+### Usage
+
+```c
+size_t const buffInSize = ZSTD_CStreamInSize();
+void* buffIn = malloc(buffInSize);
+```
+
+<Note>
+  These buffer sizes are recommendations, not requirements. `ZSTD_compressStream2()` accepts any buffer size for both input and output.
+</Note>
+
+## ZSTD_CStreamOutSize()
+
+Returns the recommended size for the output buffer.
+
+```c
+size_t ZSTD_CStreamOutSize(void);
+```
+
+### Returns
+
+Recommended size for output buffer in bytes. Guarantees successful flush of at least one complete compressed block.
+
+### Usage
+
+```c
+size_t const buffOutSize = ZSTD_CStreamOutSize();
+void* buffOut = malloc(buffOutSize);
+```
+
+<Tip>
+  For foreign function interfaces (FFI) from managed languages like Java or Go, prefer using larger buffers to reduce the number of interface crossings, which can be a significant performance bottleneck.
+</Tip>

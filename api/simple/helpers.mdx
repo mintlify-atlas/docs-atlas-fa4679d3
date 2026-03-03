@@ -1,0 +1,426 @@
+---
+title: Helper Functions
+description: Utility functions for compression bounds, frame inspection, and error handling
+---
+
+Helper functions provide essential utilities for working with zstd, including calculating compression bounds, inspecting frame metadata, and handling errors.
+
+## Compression Helpers
+
+### ZSTD_compressBound()
+
+Calculates the maximum compressed size in worst-case single-pass scenario.
+
+```c
+size_t ZSTD_compressBound(size_t srcSize);
+```
+
+#### Parameters
+
+<ParamField path="srcSize" type="size_t">
+  Size of the source data in bytes.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns the maximum compressed size. If `srcSize >= ZSTD_MAX_INPUT_SIZE`, returns an error code which can be tested using `ZSTD_isError()`.
+</ResponseField>
+
+#### Important Notes
+
+- When invoking `ZSTD_compress()` or any other one-pass compression function, it's recommended to provide `dstCapacity >= ZSTD_compressBound(srcSize)`
+- This eliminates one potential failure scenario: not enough room in destination buffer
+- This function itself can fail if `srcSize >= ZSTD_MAX_INPUT_SIZE`
+
+#### Example
+
+```c
+size_t fSize = /* size of input data */;
+size_t const cBuffSize = ZSTD_compressBound(fSize);
+if (ZSTD_isError(cBuffSize)) {
+    fprintf(stderr, "Error: source size too large\n");
+    exit(1);
+}
+void* const cBuff = malloc(cBuffSize);
+```
+
+---
+
+## Decompression Helpers
+
+### ZSTD_getFrameContentSize()
+
+Returns the decompressed content size stored in a ZSTD frame header.
+
+```c
+unsigned long long ZSTD_getFrameContentSize(const void *src, size_t srcSize);
+```
+
+#### Parameters
+
+<ParamField path="src" type="const void*">
+  Pointer to the beginning of a ZSTD encoded frame.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of the buffer pointed to by `src`. It must be at least as large as the frame header. Any value greater than or equal to `ZSTD_FRAMEHEADERSIZE_MAX` (18 bytes) is sufficient.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="unsigned long long">
+  - The decompressed size in bytes when the value is available in the frame header
+  - `ZSTD_CONTENTSIZE_UNKNOWN` (0ULL - 1) - The frame does not encode a decompressed size (typical for streaming)
+  - `ZSTD_CONTENTSIZE_ERROR` (0ULL - 2) - An error occurred (e.g., invalid magic number, srcSize too small)
+</ResponseField>
+
+#### Important Notes
+
+- The return value is **not compatible** with `ZSTD_isError()`
+- A return value of 0 denotes a valid but empty frame. Skippable frames also report 0
+- The decompressed size field is optional. When absent, the caller must rely on streaming decompression or an application-specific upper bound
+- The decompressed size is guaranteed to be present when compression was performed with single-pass APIs such as `ZSTD_compress()`, `ZSTD_compressCCtx()`, `ZSTD_compress_usingDict()`, or `ZSTD_compress_usingCDict()`
+- When processing untrusted input, validate the returned size against the application's limits
+
+#### Example
+
+```c
+size_t cSize;
+void* const cBuff = mallocAndLoadFile(fname, &cSize);
+
+unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+
+if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+    fprintf(stderr, "Not compressed by zstd!\n");
+    exit(1);
+}
+if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+    fprintf(stderr, "Original size unknown!\n");
+    exit(1);
+}
+
+void* const rBuff = malloc((size_t)rSize);
+size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+```
+
+---
+
+### ZSTD_findFrameCompressedSize()
+
+Finds the compressed size of the first frame starting at the source pointer.
+
+```c
+size_t ZSTD_findFrameCompressedSize(const void* src, size_t srcSize);
+```
+
+#### Parameters
+
+<ParamField path="src" type="const void*">
+  Should point to the start of a ZSTD frame or skippable frame.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Must be >= first frame size.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="size_t">
+  The compressed size of the first frame starting at `src`, suitable to pass as `srcSize` to `ZSTD_decompress` or similar, or an error code if input is invalid.
+</ResponseField>
+
+#### Important Notes
+
+- This method is called `find*()` because it's not enough to read the header; it may have to scan through the frame's content to reach its end
+- This method also works with Skippable Frames, returning the size of the complete skippable frame (content size + 8 bytes for headers)
+- Requires v1.4.0+
+
+---
+
+## Error Handling
+
+### ZSTD_isError()
+
+Tests if a function result is an error code.
+
+```c
+unsigned ZSTD_isError(size_t result);
+```
+
+#### Parameters
+
+<ParamField path="result" type="size_t">
+  The return value from a zstd function.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="unsigned">
+  Returns 1 if error, 0 otherwise.
+</ResponseField>
+
+#### Important Notes
+
+- Most `ZSTD_*` functions returning a `size_t` value can be tested for error using this function
+- Some functions like `ZSTD_getFrameContentSize()` use special return values and are **not compatible** with `ZSTD_isError()`
+
+---
+
+### ZSTD_getErrorName()
+
+Provides a readable string from a function result.
+
+```c
+const char* ZSTD_getErrorName(size_t result);
+```
+
+#### Parameters
+
+<ParamField path="result" type="size_t">
+  The return value from a zstd function.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="const char*">
+  Returns a human-readable error string. If the result is not an error, returns a success message.
+</ResponseField>
+
+#### Example
+
+```c
+size_t const result = ZSTD_compress(dst, dstSize, src, srcSize, level);
+if (ZSTD_isError(result)) {
+    fprintf(stderr, "Compression failed: %s\n", ZSTD_getErrorName(result));
+    exit(1);
+}
+```
+
+---
+
+### ZSTD_getErrorCode()
+
+Converts a function result into an error code enum.
+
+```c
+ZSTD_ErrorCode ZSTD_getErrorCode(size_t functionResult);
+```
+
+#### Parameters
+
+<ParamField path="functionResult" type="size_t">
+  The return value from a zstd function.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="ZSTD_ErrorCode">
+  Returns an error code that can be compared to the error enum list defined in `zstd_errors.h`.
+</ResponseField>
+
+---
+
+## Compression Level Helpers
+
+### ZSTD_minCLevel()
+
+Returns the minimum negative compression level allowed.
+
+```c
+int ZSTD_minCLevel(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="int">
+  Minimum negative compression level (typically a negative value for fastest compression).
+</ResponseField>
+
+#### Important Notes
+
+- Requires v1.4.0+
+- Negative compression levels extend the range of speed vs. ratio preferences
+- The lower the level, the faster the speed (at the cost of compression ratio)
+
+---
+
+### ZSTD_maxCLevel()
+
+Returns the maximum compression level available.
+
+```c
+int ZSTD_maxCLevel(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="int">
+  Maximum compression level available (currently 22).
+</ResponseField>
+
+#### Important Notes
+
+- Levels >= 20, labeled `--ultra`, should be used with caution as they require more memory
+
+---
+
+### ZSTD_defaultCLevel()
+
+Returns the default compression level.
+
+```c
+int ZSTD_defaultCLevel(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="int">
+  Default compression level, specified by `ZSTD_CLEVEL_DEFAULT` (typically 3).
+</ResponseField>
+
+#### Important Notes
+
+- Requires v1.5.0+
+
+---
+
+## Context Management
+
+### ZSTD_createCCtx()
+
+Creates a compression context.
+
+```c
+ZSTD_CCtx* ZSTD_createCCtx(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="ZSTD_CCtx*">
+  Returns a pointer to the newly created compression context, or NULL if allocation failed.
+</ResponseField>
+
+#### Important Notes
+
+- When compressing many times, it is recommended to allocate a compression context just once and reuse it
+- This will make the workload easier for system's memory
+- Re-using context is just a speed/resource optimization; it doesn't change the compression ratio
+- For parallel execution in multi-threaded environments, use one different context per thread
+
+---
+
+### ZSTD_freeCCtx()
+
+Frees a compression context.
+
+```c
+size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx);
+```
+
+#### Parameters
+
+<ParamField path="cctx" type="ZSTD_CCtx*">
+  Pointer to the compression context to free. Compatible with NULL pointer.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns 0 (this function never fails).
+</ResponseField>
+
+---
+
+### ZSTD_createDCtx()
+
+Creates a decompression context.
+
+```c
+ZSTD_DCtx* ZSTD_createDCtx(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="ZSTD_DCtx*">
+  Returns a pointer to the newly created decompression context, or NULL if allocation failed.
+</ResponseField>
+
+#### Important Notes
+
+- When decompressing many times, it is recommended to allocate a context only once and reuse it
+- This will make workload friendlier for system's memory
+- Use one context per thread for parallel execution
+
+---
+
+### ZSTD_freeDCtx()
+
+Frees a decompression context.
+
+```c
+size_t ZSTD_freeDCtx(ZSTD_DCtx* dctx);
+```
+
+#### Parameters
+
+<ParamField path="dctx" type="ZSTD_DCtx*">
+  Pointer to the decompression context to free. Accepts NULL pointer.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns 0 (this function never fails).
+</ResponseField>
+
+---
+
+## Dictionary Helpers
+
+### ZSTD_getDictID_fromFrame()
+
+Provides the dictionary ID required to decompress the frame stored within source data.
+
+```c
+unsigned ZSTD_getDictID_fromFrame(const void* src, size_t srcSize);
+```
+
+#### Parameters
+
+<ParamField path="src" type="const void*">
+  Pointer to the beginning of a compressed frame.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of the source buffer.
+</ParamField>
+
+#### Return Value
+
+<ResponseField name="return" type="unsigned">
+  Returns the dictionary ID, or 0 if:
+  - The frame does not require a dictionary (most common case)
+  - The frame was built with dictID intentionally removed
+  - `srcSize` is too small and the frame header could not be decoded
+  - This is not a Zstandard frame
+</ResponseField>
+
+#### Important Notes
+
+- Requires v1.4.0+
+- When identifying the exact failure cause, use `ZSTD_getFrameHeader()` for a more precise error code
+
+#### Example
+
+```c
+size_t cSize;
+void* const cBuff = mallocAndLoadFile(fname, &cSize);
+
+unsigned const dictID = ZSTD_getDictID_fromFrame(cBuff, cSize);
+if (dictID == 0) {
+    printf("No dictionary required\n");
+} else {
+    printf("Dictionary ID: %u\n", dictID);
+}
+```

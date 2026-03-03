@@ -1,0 +1,144 @@
+---
+title: "Streaming Decompression"
+description: "Functions for decompressing Zstandard data in a streaming fashion"
+---
+
+Streaming decompression allows you to decompress data incrementally without loading the entire compressed input into memory. This is essential for handling large compressed files or network streams.
+
+## ZSTD_decompressStream()
+
+Streaming decompression function. Call repetitively to consume input and produce decompressed output.
+
+```c
+size_t ZSTD_decompressStream(
+    ZSTD_DStream* zds,
+    ZSTD_outBuffer* output,
+    ZSTD_inBuffer* input
+);
+```
+
+<ParamField path="zds" type="ZSTD_DStream*" required>
+  Decompression context created with `ZSTD_createDStream()` or `ZSTD_createDCtx()`
+</ParamField>
+
+<ParamField path="output" type="ZSTD_outBuffer*" required>
+  Output buffer structure. The function updates `output->pos` to indicate how much decompressed data was written
+</ParamField>
+
+<ParamField path="input" type="ZSTD_inBuffer*" required>
+  Input buffer structure. The function updates `input->pos` to indicate how much compressed data was consumed
+</ParamField>
+
+### Returns
+
+- Returns 0 when a frame is completely decoded and fully flushed
+- Returns an error code which can be tested using `ZSTD_isError()`
+- Returns any other value > 0, indicating:
+  - Some decoding or flushing remains to complete the current frame
+  - The value is a suggested next input size (a hint for better latency)
+
+### Buffer State
+
+The function updates both `input.pos` and `output.pos` fields:
+
+- `input.pos < input.size` - Some input remains; caller should provide remaining input on next call
+- `output.pos < output.size` - Decoder flushed all available data
+- `output.pos == output.size` - May have unflushed data in internal buffers; check return value
+
+### Usage
+
+```c
+#include <zstd.h>
+
+// Create decompression context
+ZSTD_DCtx* dctx = ZSTD_createDCtx();
+
+// Prepare buffers
+size_t const buffInSize = ZSTD_DStreamInSize();
+void* buffIn = malloc(buffInSize);
+size_t const buffOutSize = ZSTD_DStreamOutSize();
+void* buffOut = malloc(buffOutSize);
+
+size_t const toRead = buffInSize;
+size_t read;
+size_t lastRet = 0;
+
+// Decompression loop
+while ((read = fread(buffIn, 1, toRead, fin))) {
+    ZSTD_inBuffer input = { buffIn, read, 0 };
+    
+    while (input.pos < input.size) {
+        ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+        size_t const ret = ZSTD_decompressStream(dctx, &output, &input);
+        
+        if (ZSTD_isError(ret)) {
+            // Handle error
+            fprintf(stderr, "Decompression error: %s\n", ZSTD_getErrorName(ret));
+            break;
+        }
+        
+        fwrite(buffOut, 1, output.pos, fout);
+        lastRet = ret;
+    }
+}
+
+// Check if decompression completed successfully
+if (lastRet != 0) {
+    fprintf(stderr, "EOF before end of stream\n");
+}
+
+// Cleanup
+ZSTD_freeDCtx(dctx);
+free(buffIn);
+free(buffOut);
+```
+
+<Note>
+  The function handles multiple concatenated zstd frames automatically. When a frame is complete (return value == 0), the context automatically resets for the next frame.
+</Note>
+
+<Warning>
+  If an operation returns an error code, the decompression context may be in an undefined state. Reset it with `ZSTD_DCtx_reset()` before reusing, or start a new decompression job with `ZSTD_initDStream()`.
+</Warning>
+
+## ZSTD_DStreamInSize()
+
+Returns the recommended size for the input buffer.
+
+```c
+size_t ZSTD_DStreamInSize(void);
+```
+
+### Returns
+
+Recommended size for input buffer in bytes. This is a soft recommendation, not a requirement.
+
+### Usage
+
+```c
+size_t const buffInSize = ZSTD_DStreamInSize();
+void* buffIn = malloc(buffInSize);
+```
+
+## ZSTD_DStreamOutSize()
+
+Returns the recommended size for the output buffer.
+
+```c
+size_t ZSTD_DStreamOutSize(void);
+```
+
+### Returns
+
+Recommended size for output buffer in bytes. Guarantees successful flush of at least one complete block in all circumstances.
+
+### Usage
+
+```c
+size_t const buffOutSize = ZSTD_DStreamOutSize();
+void* buffOut = malloc(buffOutSize);
+```
+
+<Tip>
+  While these buffer sizes are recommended for C programs, managed languages using FFI (like Java or Go) should consider using larger buffers to minimize expensive interface crossings.
+</Tip>

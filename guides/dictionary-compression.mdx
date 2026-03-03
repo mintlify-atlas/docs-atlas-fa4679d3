@@ -1,0 +1,325 @@
+---
+title: Dictionary Compression
+description: Improve compression ratio for small files using trained dictionaries
+---
+
+Dictionary compression can dramatically improve compression ratios for small files that share similar structures. This is especially effective for collections of JSON records, small HTML pages, or similar data.
+
+## Why Use Dictionaries?
+
+Traditional compression algorithms rely on finding repetitive patterns within a single file. Small files often don't have enough repetition to compress well. Dictionaries solve this by:
+
+- **Pre-learning common patterns** from sample data
+- **Sharing patterns across files** that have similar structures
+- **Improving compression ratio** by 2x or more for small files
+- **Reducing header overhead** through entropy tables
+
+Dictionaries are most effective for files under 100KB. The smaller the file, the greater the benefit.
+
+## Training a Dictionary
+
+Before using dictionary compression, you need to train a dictionary on representative samples.
+
+### Using the Command Line
+
+The easiest way to create a dictionary is with the zstd CLI:
+
+```bash
+# Train a dictionary from sample files
+zstd --train samples/*.json -o dict.zst
+
+# Specify dictionary size (default 110KB)
+zstd --train samples/*.json -o dict.zst --maxdict=100000
+```
+
+### Using the API
+
+You can also train dictionaries programmatically using the `zdict.h` API:
+
+```c
+#include <zdict.h>
+
+// Prepare samples (concatenated in a single buffer)
+void* samplesBuffer;  // All samples concatenated
+size_t* samplesSizes; // Array of individual sample sizes
+unsigned nbSamples;   // Number of samples
+
+// Train the dictionary
+size_t dictSize = ZDICT_trainFromBuffer(
+    dictBuffer,           // Output: dictionary buffer
+    dictBufferCapacity,   // Size: typically ~100KB
+    samplesBuffer,        // Input: all samples concatenated
+    samplesSizes,         // Input: size of each sample
+    nbSamples             // Input: number of samples
+);
+
+if (ZDICT_isError(dictSize)) {
+    fprintf(stderr, "Dictionary training failed: %s\n", 
+            ZDICT_getErrorName(dictSize));
+}
+```
+
+### Training Guidelines
+
+- **Sample count**: Provide at least 100x the dictionary size in samples (a few thousand samples)
+- **Dictionary size**: 100KB is a reasonable default
+- **Sample quality**: Use representative data similar to what you'll compress
+- **Similarity**: Samples should share common structures or patterns
+
+## Compressing with a Dictionary
+
+Once you have a trained dictionary, use it for compression.
+
+<Steps>
+  <Step title="Load the dictionary">
+    Create a `ZSTD_CDict` object from the dictionary file:
+
+    ```c
+    static ZSTD_CDict* createCDict_orDie(const char* dictFileName, int cLevel)
+    {
+        size_t dictSize;
+        printf("loading dictionary %s \n", dictFileName);
+        void* const dictBuffer = mallocAndLoadFile_orDie(dictFileName, &dictSize);
+        ZSTD_CDict* const cdict = ZSTD_createCDict(dictBuffer, dictSize, cLevel);
+        CHECK(cdict != NULL, "ZSTD_createCDict() failed!");
+        free(dictBuffer);
+        return cdict;
+    }
+    ```
+
+    Load the dictionary once and reuse it for multiple compressions.
+  </Step>
+
+  <Step title="Compress with the dictionary">
+    Use `ZSTD_compress_usingCDict()` to compress data:
+
+    ```c
+    static void compress(const char* fname, const char* oname, const ZSTD_CDict* cdict)
+    {
+        size_t fSize;
+        void* const fBuff = mallocAndLoadFile_orDie(fname, &fSize);
+        size_t const cBuffSize = ZSTD_compressBound(fSize);
+        void* const cBuff = malloc_orDie(cBuffSize);
+
+        /* Compress using the dictionary.
+         * This function writes the dictionary id, and content size into the header.
+         * But, it doesn't use a checksum. You can control these options using the
+         * advanced API: ZSTD_CCtx_setParameter(), ZSTD_CCtx_refCDict(),
+         * and ZSTD_compress2().
+         */
+        ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+        CHECK(cctx != NULL, "ZSTD_createCCtx() failed!");
+        size_t const cSize = ZSTD_compress_usingCDict(cctx, cBuff, cBuffSize, 
+                                                       fBuff, fSize, cdict);
+        CHECK_ZSTD(cSize);
+
+        saveFile_orDie(oname, cBuff, cSize);
+        printf("%25s : %6u -> %7u - %s \n", fname, 
+               (unsigned)fSize, (unsigned)cSize, oname);
+
+        ZSTD_freeCCtx(cctx);
+        free(fBuff);
+        free(cBuff);
+    }
+    ```
+  </Step>
+
+  <Step title="Clean up">
+    Free the dictionary when done:
+
+    ```c
+    ZSTD_freeCDict(dictPtr);
+    ```
+  </Step>
+</Steps>
+
+### Complete Example
+
+From `examples/dictionary_compression.c`:
+
+```c
+int main(int argc, const char** argv)
+{
+    const char* const exeName = argv[0];
+    int const cLevel = 3;
+
+    if (argc<3) {
+        fprintf(stderr, "wrong arguments\n");
+        fprintf(stderr, "usage:\n");
+        fprintf(stderr, "%s [FILES] dictionary\n", exeName);
+        return 1;
+    }
+
+    /* load dictionary only once */
+    const char* const dictName = argv[argc-1];
+    ZSTD_CDict* const dictPtr = createCDict_orDie(dictName, cLevel);
+
+    int u;
+    for (u=1; u<argc-1; u++) {
+        const char* inFilename = argv[u];
+        char* const outFilename = createOutFilename_orDie(inFilename);
+        compress(inFilename, outFilename, dictPtr);
+        free(outFilename);
+    }
+
+    ZSTD_freeCDict(dictPtr);
+    printf("All %u files compressed. \n", argc-2);
+    return 0;
+}
+```
+
+## Decompressing with a Dictionary
+
+Decompression requires the same dictionary used for compression.
+
+<Steps>
+  <Step title="Load the dictionary">
+    Create a `ZSTD_DDict` object:
+
+    ```c
+    static ZSTD_DDict* createDict_orDie(const char* dictFileName)
+    {
+        size_t dictSize;
+        printf("loading dictionary %s \n", dictFileName);
+        void* const dictBuffer = mallocAndLoadFile_orDie(dictFileName, &dictSize);
+        ZSTD_DDict* const ddict = ZSTD_createDDict(dictBuffer, dictSize);
+        CHECK(ddict != NULL, "ZSTD_createDDict() failed!");
+        free(dictBuffer);
+        return ddict;
+    }
+    ```
+  </Step>
+
+  <Step title="Verify dictionary ID">
+    Optionally verify the dictionary matches:
+
+    ```c
+    unsigned const expectedDictID = ZSTD_getDictID_fromDDict(ddict);
+    unsigned const actualDictID = ZSTD_getDictID_fromFrame(cBuff, cSize);
+    CHECK(actualDictID == expectedDictID,
+          "DictID mismatch: expected %u got %u",
+          expectedDictID, actualDictID);
+    ```
+
+    Zstd writes the dictionary ID into the frame header by default.
+  </Step>
+
+  <Step title="Decompress with the dictionary">
+    Use `ZSTD_decompress_usingDDict()`:
+
+    ```c
+    ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+    CHECK(dctx != NULL, "ZSTD_createDCtx() failed!");
+    size_t const dSize = ZSTD_decompress_usingDDict(dctx, rBuff, rSize, 
+                                                     cBuff, cSize, ddict);
+    CHECK_ZSTD(dSize);
+    ```
+  </Step>
+</Steps>
+
+### Complete Example
+
+From `examples/dictionary_decompression.c`:
+
+```c
+static void decompress(const char* fname, const ZSTD_DDict* ddict)
+{
+    size_t cSize;
+    void* const cBuff = mallocAndLoadFile_orDie(fname, &cSize);
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    CHECK(rSize != ZSTD_CONTENTSIZE_ERROR, "%s: not compressed by zstd!", fname);
+    CHECK(rSize != ZSTD_CONTENTSIZE_UNKNOWN, "%s: original size unknown!", fname);
+    void* const rBuff = malloc_orDie((size_t)rSize);
+
+    /* Check that the dictionary ID matches.
+     * If a non-zstd dictionary is used, then both will be zero.
+     * By default zstd always writes the dictionary ID into the frame.
+     * Zstd will check if there is a dictionary ID mismatch as well.
+     */
+    unsigned const expectedDictID = ZSTD_getDictID_fromDDict(ddict);
+    unsigned const actualDictID = ZSTD_getDictID_fromFrame(cBuff, cSize);
+    CHECK(actualDictID == expectedDictID,
+          "DictID mismatch: expected %u got %u",
+          expectedDictID,
+          actualDictID);
+
+    /* Decompress using the dictionary.
+     * If you need to control the decompression parameters, then use the
+     * advanced API: ZSTD_DCtx_setParameter(), ZSTD_DCtx_refDDict(), and
+     * ZSTD_decompressDCtx().
+     */
+    ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+    CHECK(dctx != NULL, "ZSTD_createDCtx() failed!");
+    size_t const dSize = ZSTD_decompress_usingDDict(dctx, rBuff, rSize, cBuff, cSize, ddict);
+    CHECK_ZSTD(dSize);
+    /* When zstd knows the content size, it will error if it doesn't match. */
+    CHECK(dSize == rSize, "Impossible because zstd will check this condition!");
+
+    printf("%25s : %6u -> %7u \n", fname, (unsigned)cSize, (unsigned)rSize);
+
+    ZSTD_freeDCtx(dctx);
+    free(rBuff);
+    free(cBuff);
+}
+```
+
+## Advanced Dictionary Training
+
+For more control over dictionary training, use the advanced API:
+
+<CodeGroup>
+```c ZDICT_trainFromBuffer()
+// Simple training (default parameters)
+size_t dictSize = ZDICT_trainFromBuffer(
+    dictBuffer, dictBufferCapacity,
+    samplesBuffer, samplesSizes, nbSamples
+);
+```
+
+```c ZDICT_finalizeDictionary()
+// Finalize a raw content dictionary
+ZDICT_params_t params = {
+    .compressionLevel = 3,
+    .notificationLevel = 2,
+    .dictID = 0  // Auto-generate ID
+};
+
+size_t dictSize = ZDICT_finalizeDictionary(
+    dstDictBuffer, maxDictSize,
+    dictContent, dictContentSize,
+    samplesBuffer, samplesSizes, nbSamples,
+    params
+);
+```
+</CodeGroup>
+
+## Raw Content Dictionaries
+
+You can use any buffer as a raw content dictionary without training:
+
+```c
+// Use any buffer as a dictionary
+void* rawDict = myCustomDictionary;
+size_t rawDictSize = sizeof(myCustomDictionary);
+
+// Compress with raw dictionary
+ZSTD_CCtx_loadDictionary(cctx, rawDict, rawDictSize);
+ZSTD_compress2(cctx, dst, dstSize, src, srcSize);
+```
+
+Raw dictionaries don't include entropy tables or dictionary IDs, so they're less effective than trained dictionaries.
+
+## Performance Tips
+
+- **Reuse dictionary objects**: Create `ZSTD_CDict`/`ZSTD_DDict` once and reuse for multiple operations
+- **Match compression level**: Train dictionaries at the compression level you'll use in production
+- **Update periodically**: Retrain dictionaries as your data evolves
+- **Test effectiveness**: Use `zstd -b` to benchmark with and without the dictionary
+
+```bash
+# Benchmark without dictionary
+zstd -b1e3 -r /path/to/files
+
+# Benchmark with dictionary
+zstd -b1e3 -r /path/to/files -D /path/to/dict.zst
+```

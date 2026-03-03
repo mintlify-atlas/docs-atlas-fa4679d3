@@ -1,0 +1,313 @@
+---
+title: Multithreaded Compression
+description: Speed up compression using parallel processing with multiple threads
+---
+
+Multithreaded compression allows Zstandard to use multiple CPU cores to compress data faster. This is particularly effective for large files and high compression levels.
+
+## Enabling Multithreading
+
+Multithreading must be enabled at compile time with the `ZSTD_MULTITHREAD` build macro. When enabled, you can set the number of worker threads using compression parameters.
+
+### Basic Multithreading
+
+Set the number of worker threads with `ZSTD_c_nbWorkers`:
+
+```c
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+
+// Set compression level
+CHECK_ZSTD(ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, cLevel));
+
+// Enable multithreading with N workers
+int nbThreads = 4;
+size_t const r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nbThreads);
+if (ZSTD_isError(r)) {
+    fprintf(stderr, "Note: the linked libzstd library doesn't support multithreading. "
+                    "Reverting to single-thread mode. \n");
+}
+```
+
+<Steps>
+  <Step title="Check multithreading support">
+    Test if the library supports multithreading:
+
+    ```c
+    // Try setting nbWorkers >= 1
+    size_t result = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, 1);
+    if (ZSTD_isError(result)) {
+        // Multithreading not supported
+        fprintf(stderr, "Multithreading not available\n");
+    } else {
+        // Multithreading is supported
+        printf("Using %d threads\n", nbThreads);
+    }
+    ```
+  </Step>
+
+  <Step title="Set worker count">
+    Choose the number of workers based on your CPU cores:
+
+    ```c
+    // Use all available cores
+    int nbThreads = sysconf(_SC_NPROCESSORS_ONLN);
+    
+    // Or set a specific number
+    int nbThreads = 4;
+    
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nbThreads);
+    ```
+
+    When `nbWorkers >= 1`, compression enters asynchronous mode.
+  </Step>
+
+  <Step title="Compress as normal">
+    Use streaming compression with `ZSTD_compressStream2()`:
+
+    ```c
+    ZSTD_inBuffer input = { buffIn, read, 0 };
+    ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+    
+    size_t const remaining = ZSTD_compressStream2(cctx, &output, &input, mode);
+    CHECK_ZSTD(remaining);
+    ```
+
+    The compression work is distributed across worker threads automatically.
+  </Step>
+</Steps>
+
+### Complete Example
+
+From `examples/streaming_compression.c` with multithreading:
+
+```c
+static void compressFile_orDie(const char* fname, const char* outName, 
+                               int cLevel, int nbThreads)
+{
+    fprintf(stderr, "Starting compression of %s with level %d, using %d threads\n",
+            fname, cLevel, nbThreads);
+
+    FILE* const fin  = fopen_orDie(fname, "rb");
+    FILE* const fout = fopen_orDie(outName, "wb");
+    
+    size_t const buffInSize = ZSTD_CStreamInSize();
+    void*  const buffIn  = malloc_orDie(buffInSize);
+    size_t const buffOutSize = ZSTD_CStreamOutSize();
+    void*  const buffOut = malloc_orDie(buffOutSize);
+
+    ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+    CHECK(cctx != NULL, "ZSTD_createCCtx() failed!");
+
+    /* Set compression parameters */
+    CHECK_ZSTD(ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, cLevel));
+    CHECK_ZSTD(ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1));
+    
+    if (nbThreads > 1) {
+        size_t const r = ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nbThreads);
+        if (ZSTD_isError(r)) {
+            fprintf(stderr, "Note: the linked libzstd library doesn't support multithreading. "
+                            "Reverting to single-thread mode. \n");
+        }
+    }
+
+    /* Compress using streaming API */
+    size_t const toRead = buffInSize;
+    for (;;) {
+        size_t read = fread_orDie(buffIn, toRead, fin);
+        int const lastChunk = (read < toRead);
+        ZSTD_EndDirective const mode = lastChunk ? ZSTD_e_end : ZSTD_e_continue;
+        
+        ZSTD_inBuffer input = { buffIn, read, 0 };
+        int finished;
+        do {
+            ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+            size_t const remaining = ZSTD_compressStream2(cctx, &output, &input, mode);
+            CHECK_ZSTD(remaining);
+            fwrite_orDie(buffOut, output.pos, fout);
+            
+            finished = lastChunk ? (remaining == 0) : (input.pos == input.size);
+        } while (!finished);
+        
+        if (lastChunk) break;
+    }
+
+    ZSTD_freeCCtx(cctx);
+    fclose_orDie(fout);
+    fclose_orDie(fin);
+    free(buffIn);
+    free(buffOut);
+}
+```
+
+## Thread Pool Sharing
+
+When compressing multiple files in parallel, you can share a thread pool to avoid oversubscribing CPU cores.
+
+### Using ZSTD_threadPool (Static Linking Only)
+
+The thread pool API is only available when using `ZSTD_STATIC_LINKING_ONLY`:
+
+```c
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <pthread.h>
+
+typedef struct {
+    const char *fname;
+    char *outName;
+    int cLevel;
+    ZSTD_threadPool *pool;  // Shared thread pool
+} compress_args_t;
+
+int main(int argc, const char** argv)
+{
+    int pool_size = 4;  // Total threads in pool
+    int level = 3;
+    
+    // Create a shared thread pool
+    ZSTD_threadPool *pool = ZSTD_createThreadPool(pool_size);
+    CHECK(pool != NULL, "ZSTD_createThreadPool() failed!");
+    fprintf(stderr, "Using shared thread pool of size %d\n", pool_size);
+
+    // Compress multiple files using the shared pool
+    for (unsigned i = 0; i < numFiles; i++) {
+        ZSTD_CCtx* cctx = ZSTD_createCCtx();
+        
+        // Attach the shared thread pool
+        size_t r = ZSTD_CCtx_refThreadPool(cctx, pool);
+        CHECK(r == 0, "ZSTD_CCtx_refThreadPool failed!");
+        
+        // Set compression parameters
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, level);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, pool_size);
+        
+        // Compress file...
+        compressFile(cctx, files[i]);
+        
+        ZSTD_freeCCtx(cctx);
+    }
+
+    // Clean up
+    ZSTD_freeThreadPool(pool);
+    return 0;
+}
+```
+
+### Complete Thread Pool Example
+
+From `examples/streaming_compression_thread_pool.c`:
+
+```c
+#if defined(ZSTD_STATIC_LINKING_ONLY)
+    ZSTD_threadPool *pool = ZSTD_createThreadPool(pool_size);
+    CHECK(pool != NULL, "ZSTD_createThreadPool() failed!");
+    fprintf(stderr, "Using shared thread pool of size %d\n", pool_size);
+#else
+    fprintf(stderr, "All threads use its own thread pool\n");
+#endif
+
+    pthread_t *threads = malloc_orDie(argc * sizeof(pthread_t));
+    compress_args_t *args = malloc_orDie(argc * sizeof(compress_args_t));
+
+    for (unsigned i = 0; i < argc; i++) {
+        args[i].fname = argv[i];
+        args[i].outName = createOutFilename_orDie(args[i].fname);
+        args[i].cLevel = level;
+#if defined(ZSTD_STATIC_LINKING_ONLY)
+        args[i].pool = pool;
+#endif
+        pthread_create(&threads[i], NULL, compressFile_orDie, &args[i]);
+    }
+
+    for (unsigned i = 0; i < argc; i++)
+        pthread_join(threads[i], NULL);
+
+#if defined(ZSTD_STATIC_LINKING_ONLY)
+    ZSTD_freeThreadPool(pool);
+#endif
+```
+
+## Multithreading Parameters
+
+Fine-tune multithreaded compression with additional parameters:
+
+### Job Size
+
+Control the size of each compression job:
+
+```c
+// Set job size (auto by default)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_jobSize, 1024 * 1024);  // 1 MB jobs
+```
+
+Each job is compressed in parallel. Smaller jobs mean more parallelism but higher overhead. Default (0) automatically determines job size based on compression parameters.
+
+Minimum job size is 512 KB (`ZSTDMT_JOBSIZE_MIN`).
+
+### Overlap Size
+
+Control how much data overlaps between jobs:
+
+```c
+// Set overlap as fraction of window size
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_overlapLog, 6);
+```
+
+Overlap values range from 0-9:
+- **0**: Default (library determines based on strategy)
+- **1**: No overlap
+- **6**: w/8 overlap (common default)
+- **9**: Full window overlap
+
+Larger overlap improves compression ratio but reduces speed.
+
+## Command Line Usage
+
+Use the `-T` flag to enable multithreading in the zstd CLI:
+
+```bash
+# Use 4 threads
+zstd -T4 file.txt
+
+# Use all available cores
+zstd -T0 file.txt
+
+# Combine with compression level
+zstd -10 -T4 file.txt
+```
+
+## Performance Considerations
+
+<CodeGroup>
+```c Small files
+// Multithreading adds overhead for small files
+// Only beneficial when file > ~1 MB
+if (fileSize < 1024 * 1024) {
+    nbThreads = 1;  // Single-threaded is faster
+}
+```
+
+```c Large files
+// Large files benefit from more threads
+if (fileSize > 100 * 1024 * 1024) {
+    nbThreads = numCPUs;  // Use all cores
+}
+```
+
+```c High compression levels
+// Higher levels benefit more from multithreading
+if (compressionLevel >= 16) {
+    nbThreads = numCPUs;  // Significant speedup
+}
+```
+</CodeGroup>
+
+## Memory Usage
+
+Multithreading increases memory usage:
+
+- Each worker thread requires its own compression context
+- Memory scales with: `nbWorkers × (windowSize + jobSize)`
+- Higher compression levels use more memory per worker
+
+Monitor memory usage when using many threads with high compression levels.

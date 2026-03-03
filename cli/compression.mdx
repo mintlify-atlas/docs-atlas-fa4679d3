@@ -1,0 +1,287 @@
+---
+title: Compression Commands
+description: Compression commands and options for zstd command-line tool
+---
+
+The `zstd` CLI provides extensive compression options, from ultra-fast modes to maximum compression settings.
+
+## Basic Compression
+
+### Compression Levels
+
+```bash
+# Default compression (level 3)
+zstd file.txt
+
+# Specific level (1-19)
+zstd -1 file.txt   # Fastest
+zstd -9 file.txt   # Balanced
+zstd -19 file.txt  # Best compression
+```
+
+<Note>
+Higher compression levels generally produce better compression ratios but are slower and use more memory. Compression speed roughly halves every 2 levels.
+</Note>
+
+### Ultra Compression
+
+```bash
+# Unlock levels 20-22 (requires more memory)
+zstd --ultra -20 file.txt
+zstd --ultra -22 file.txt  # Maximum compression
+
+# Maximum compression preset
+zstd --max file.txt
+```
+
+<Warning>
+Ultra compression levels (20-22) require significantly more memory for both compression and decompression. Level 22 with `--max` is very slow and resource-intensive.
+</Warning>
+
+### Fast Compression
+
+```bash
+# Ultra-fast compression modes
+zstd --fast file.txt      # --fast=1 (default)
+zstd --fast=2 file.txt
+zstd --fast=5 file.txt    # Faster, lower ratio
+```
+
+The `--fast` setting provides very fast compression at the cost of compression ratio. Higher values increase speed but reduce compression.
+
+## Multi-threading
+
+### Thread Options
+
+```bash
+# Use specific number of threads
+zstd -T4 file.txt
+
+# Use all available CPU cores
+zstd -T0 file.txt
+
+# Single-threaded mode (lower memory usage)
+zstd --single-thread file.txt
+```
+
+<Note>
+`-T1` spawns 1 compression thread in parallel with I/O, while `--single-thread` serializes I/O and compression for lower memory usage.
+</Note>
+
+### Auto-threading
+
+```bash
+# Use physical cores (default)
+zstd -T0 --auto-threads=physical file.txt
+
+# Use logical cores
+zstd -T0 --auto-threads=logical file.txt
+```
+
+## Advanced Compression Options
+
+### Long Distance Matching
+
+```bash
+# Enable long distance matching (128 MiB window)
+zstd --long file.tar
+
+# Specify window log size
+zstd --long=27 file.tar  # Default
+zstd --long=30 file.tar  # Larger window
+```
+
+Long distance matching improves compression on files with repeated patterns far apart (e.g., multiple versions of similar files).
+
+**Performance example on clang versions:**
+
+| Method | Ratio | Compression Speed | Decompression Speed |
+|--------|-------|-------------------|---------------------|
+| `zstd -1` | 5.065 | 284.8 MB/s | 759.3 MB/s |
+| `zstd -1 --long` | 17.426 | 220.6 MB/s | 1638.4 MB/s |
+| `zstd -10` | 6.504 | 29.5 MB/s | 771.3 MB/s |
+| `zstd -10 --long` | 21.949 | 75.6 MB/s | 1632.6 MB/s |
+
+### Adaptive Compression
+
+```bash
+# Dynamically adapt compression level to I/O
+zstd --adapt file.txt
+
+# Constrain adaptation range
+zstd --adapt=min=1,max=10 file.txt
+```
+
+<Note>
+Adaptive compression is not reproducible due to dynamic level changes. It works with multi-threading and `--long` mode but not with `--single-thread`.
+</Note>
+
+### Job Size
+
+```bash
+# Set compression job size (for multi-threading)
+zstd -T0 -B 1MiB file.txt
+zstd -T0 -B 0 file.txt     # Automatic (default)
+```
+
+Job size affects multi-threaded compression. Each job runs in parallel, indirectly impacting active thread count.
+
+### Rsyncable Compression
+
+```bash
+# Create rsync-friendly compressed files
+zstd --rsyncable file.txt
+zstd --rsyncable -B 1MiB file.txt
+```
+
+<Warning>
+Do not use `--rsyncable` with `--single-thread`. It may reduce effectiveness with long distance matching.
+</Warning>
+
+## Checksums and Metadata
+
+### Integrity Checks
+
+```bash
+# Add XXH64 checksum (default)
+zstd file.txt
+
+# Disable checksum
+zstd --no-check file.txt
+```
+
+### Content Size
+
+```bash
+# Store original size in header (default)
+zstd file.txt
+
+# Disable content size
+zstd --no-content-size file.txt
+```
+
+## Output Control
+
+### Output Files
+
+```bash
+# Specify output file
+zstd file.txt -o compressed.zst
+
+# Write to stdout
+zstd -c file.txt > output.zst
+
+# Keep input files (default)
+zstd -k file.txt
+
+# Remove input files after compression
+zstd --rm file.txt
+```
+
+### Force Overwrite
+
+```bash
+# Overwrite existing files
+zstd -f file.txt
+
+# Force stdout even to terminal
+zstd -fc file.txt
+```
+
+## Streaming Compression
+
+### Stream Size
+
+```bash
+# Specify exact input size for streaming
+cat file.txt | zstd --stream-size=12345 > file.zst
+```
+
+<Note>
+The stream size must be exact. Incorrect values cause errors. This helps optimize compression parameters.
+</Note>
+
+### Size Hint
+
+```bash
+# Provide approximate size hint for optimization
+cat file.txt | zstd --size-hint=10KiB > file.zst
+```
+
+Size hints improve compression when the exact size is unknown. Overestimates slightly degrade ratio; underestimates may significantly degrade it.
+
+### Target Block Size
+
+```bash
+# Create blocks of approximately specified size
+zstd --target-compressed-block-size=64KiB file.txt
+```
+
+Useful for improved latency when receivers can leverage early incomplete data. May decrease compression speed by ~10% at level 1.
+
+## Compression Formats
+
+```bash
+# Zstandard format (default)
+zstd --format=zstd file.txt
+
+# gzip format (requires zlib support)
+zstd --format=gzip file.txt
+
+# xz format (requires lzma support)
+zstd --format=xz file.txt
+
+# lzma format (requires lzma support)
+zstd --format=lzma file.txt
+
+# lz4 format (requires lz4 support)
+zstd --format=lz4 file.txt
+```
+
+## Literals Compression
+
+```bash
+# Force compressed literals
+zstd --compress-literals file.txt
+
+# Force uncompressed literals
+zstd --no-compress-literals file.txt
+```
+
+## Match Finder
+
+```bash
+# Enable row-based match finder (greedy/lazy/lazy2 strategies)
+zstd --row-match-finder file.txt
+
+# Disable row-based match finder
+zstd --no-row-match-finder file.txt
+```
+
+## File Filtering
+
+```bash
+# Only compress uncompressed files
+zstd --exclude-compressed *.txt *.log *.data
+```
+
+This skips files that are already compressed (e.g., `.jpg`, `.mp3`, `.zst`).
+
+## Advanced Parameter Control
+
+### Custom Parameters
+
+```bash
+# Set advanced compression parameters
+zstd --zstd=wlog=23,clog=23,hlog=22,slog=6,mml=3,tlen=48,strat=6 file.txt
+
+# Override specific parameters
+zstd -19 --zstd=strategy=9 file.txt
+```
+
+### Show Default Parameters
+
+```bash
+# Display parameters for compression level
+zstd --show-default-cparams -19 file.txt
+```

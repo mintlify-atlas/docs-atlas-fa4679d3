@@ -1,0 +1,216 @@
+---
+title: Installation
+description: Install Zstandard using package managers or build from source for your platform
+---
+
+# Installation
+
+Zstandard can be installed using various package managers or built from source. Choose the method that best suits your development environment.
+
+## Quick install
+
+<CodeGroup>
+
+```bash Make (Linux/macOS)
+# Clone the repository
+git clone https://github.com/facebook/zstd.git
+cd zstd
+
+# Build and install
+make
+sudo make install
+```
+
+```bash VCPKG (Cross-platform)
+# Clone vcpkg
+git clone https://github.com/Microsoft/vcpkg.git
+cd vcpkg
+
+# Bootstrap vcpkg
+./bootstrap-vcpkg.sh  # On Windows: .\\bootstrap-vcpkg.bat
+
+# Install zstd
+./vcpkg integrate install
+./vcpkg install zstd
+```
+
+```bash Conan (Cross-platform)
+# Install with Conan package manager
+conan install --requires="zstd/[*]" --build=missing
+```
+
+```bash CMake (Cross-platform)
+# Clone the repository
+git clone https://github.com/facebook/zstd.git
+cd zstd
+
+# Configure and build
+cmake -S . -B build-cmake
+cmake --build build-cmake
+
+# Install
+sudo cmake --install build-cmake
+```
+
+</CodeGroup>
+
+<Tip>
+The `make` build system is the reference implementation and is recommended when your platform supports it. Other build systems are periodically updated to stay compatible.
+</Tip>
+
+## Installation steps
+
+<Steps>
+  <Step title="Choose your installation method">
+    Select the package manager or build system that matches your platform and workflow. For most Unix-like systems, the Makefile method is recommended.
+  </Step>
+  
+  <Step title="Install dependencies">
+    Ensure you have the necessary build tools:
+    
+    - **Linux/macOS**: `gcc` or `clang`, `make`
+    - **Windows**: Visual Studio 2010 or later, or use CMake with your preferred compiler
+    - **All platforms**: `git` for cloning the repository
+  </Step>
+  
+  <Step title="Build and install">
+    Follow the commands for your chosen method above. The build process will create:
+    
+    - `zstd` command-line tool (in root directory)
+    - `libzstd` library (in `lib/` directory)
+    - Man pages and documentation
+  </Step>
+  
+  <Step title="Verify installation">
+    Test that Zstandard is correctly installed:
+    
+    ```bash
+    zstd --version
+    ```
+    
+    You should see output similar to:
+    ```
+    *** Zstandard CLI (64-bit) v1.6.0, by Yann Collet ***
+    ```
+  </Step>
+</Steps>
+
+## Build from source (detailed)
+
+### Using Makefile
+
+The Makefile is the main build system and follows GNU Standard Makefile conventions:
+
+```bash
+# Basic build
+make
+
+# Install (requires sudo on most systems)
+sudo make install
+
+# Run tests
+make check
+
+# Clean build artifacts
+make clean
+```
+
+<Note>
+The Makefile supports standard compilation flags, directory variables, and command variables following GNU conventions.
+</Note>
+
+### Using CMake
+
+The CMake project generator can create Makefiles or other build scripts:
+
+```bash
+# Configure (builds in Release mode by default)
+cmake -S . -B build-cmake
+
+# Build
+cmake --build build-cmake
+
+# Install
+sudo cmake --install build-cmake
+```
+
+For advanced CMake configuration options, see the project's CMake documentation.
+
+### Using Meson
+
+A Meson project is provided within `build/meson`:
+
+```bash
+cd build/meson
+meson setup builddir
+cd builddir
+ninja
+sudo ninja install
+```
+
+## Platform-specific notes
+
+### macOS Universal2 build
+
+You can build Zstandard with support for both Apple Silicon (M1/M2) and Intel processors:
+
+```bash
+cmake -S . -B build-cmake-universal \
+  -G Ninja \
+  -DCMAKE_OSX_ARCHITECTURES="x86_64;x86_64h;arm64"
+  
+cd build-cmake-universal
+ninja
+sudo ninja install
+```
+
+### Windows with Visual Studio
+
+Go into the `build` directory to find:
+
+- Projects for Visual Studio 2008 and 2010 (VS2010 project is compatible with VS2012-VS2017)
+- Automated build scripts in `build/VS_scripts` that build without opening Visual Studio
+- Recommended: Generate Visual Studio solutions using CMake
+
+```powershell
+cmake -S . -B build-vs -G "Visual Studio 16 2019"
+cmake --build build-vs --config Release
+```
+
+### Using Buck
+
+You can build the zstd binary via Buck:
+
+```bash
+buck build programs:zstd
+```
+
+The output binary will be in `buck-out/gen/programs/`.
+
+### Using Bazel
+
+Integrate zstd into your Bazel project using the module hosted on the [Bazel Central Repository](https://registry.bazel.build/modules/zstd).
+
+## Advanced build options
+
+For specialized flags controlling binary generation and installation paths:
+
+- **Library options**: See [`lib/README.md`](https://github.com/facebook/zstd/blob/dev/lib/README.md#modular-build) for modular build options
+- **CLI options**: See [`programs/README.md`](https://github.com/facebook/zstd/blob/dev/programs/README.md#compilation-variables) for compilation variables
+
+<Warning>
+When building from source, prefer using the `make` build system when possible. Other build systems may have small feature differences due to synchronization challenges.
+</Warning>
+
+## Package manager maintenance
+
+The Zstandard packages in VCPKG and Conan are maintained by Microsoft team members and community contributors. If you find an outdated version:
+
+- **VCPKG**: Create an issue or pull request on the [vcpkg repository](https://github.com/Microsoft/vcpkg)
+- **Conan**: Create an issue or pull request on the [ConanCenterIndex repository](https://github.com/conan-io/conan-center-index)
+
+## Next steps
+
+<Card title="Quick start guide" icon="rocket" href="/quickstart">
+  Now that you have Zstandard installed, learn how to compress and decompress data with working code examples
+</Card>

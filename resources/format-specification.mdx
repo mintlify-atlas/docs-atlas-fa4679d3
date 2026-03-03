@@ -1,0 +1,82 @@
+---
+title: Format Specification
+description: Technical specification and format documentation for Zstandard compression
+---
+
+The Zstandard compression format is formally documented and standardized to ensure interoperability across implementations.
+
+## RFC 8878
+
+Zstandard's format is stable and documented in [RFC 8878](https://datatracker.ietf.org/doc/html/rfc8878). This IETF standard defines the Zstandard Compression Format as an independent specification suitable for file compression, pipe and streaming compression.
+
+Multiple independent implementations are already available based on this specification.
+
+## Format Documentation
+
+The detailed format specification is maintained in the Zstandard repository:
+
+- **Current Version**: 0.4.4 (2025-03-22)
+- **Full Specification**: Available in the repository at `doc/zstd_compression_format.md`
+
+### Key Format Features
+
+#### Frames
+
+Zstandard compressed data is made of one or more **frames**. Each frame is independent and can be decompressed independently of other frames. The decompressed content of multiple concatenated frames is the concatenation of each frame decompressed content.
+
+There are two frame formats defined by Zstandard:
+- **Zstandard frames**: Contain compressed data
+- **Skippable frames**: Contain custom user metadata
+
+#### Blocks
+
+Each frame encapsulates one or multiple **blocks**. Each block contains arbitrary content, which is described by its header, and has a guaranteed maximum content size, which depends on frame parameters. Unlike frames, each block depends on previous blocks for proper decoding. However, each block can be decompressed without waiting for its successor, allowing streaming operations.
+
+#### Entropy Encoding
+
+Zstandard uses two types of entropy encoding:
+- **FSE (Finite State Entropy)**: Based on ANS (Asymmetric Numeral Systems), used for all symbols except literals
+- **Huffman coding**: Used to compress literals
+
+### Magic Number
+
+Zstandard frames begin with a 4-byte magic number in little-endian format:
+
+- **Value**: `0xFD2FB528`
+
+This value was selected to be less probable to find at the beginning of random files. It avoids trivial patterns, contains byte values outside of ASCII range, and doesn't map into UTF8 space.
+
+### Window Size
+
+The format supports configurable window sizes for compression:
+
+- **Minimum**: 1 KB
+- **Maximum**: `(1<<41) + 7*(1<<38)` bytes (3.75 TB)
+- **Recommended for decoders**: At least 8 MB
+- **Recommended for encoders**: Not to exceed 8 MB
+
+Larger window sizes tend to improve compression ratio, but at the cost of memory usage.
+
+### Content Checksum
+
+An optional 32-bit checksum can be included at the end of frames. The content checksum uses the [xxHash-64](https://cyan4973.github.io/xxHash/) hash function digesting the original (decoded) data as input, with a seed of zero. The low 4 bytes of the checksum are stored in little-endian format.
+
+## License and Permissions
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Permission is granted to copy and distribute this document for any purpose and without charge, including translations into other languages and incorporation into compilations, provided that the copyright notice and this notice are preserved, and that any substantive changes or deletions from the original are clearly marked.
+
+Distribution of this document is unlimited.
+
+## Reference Implementation
+
+The Zstandard format is supported by an open source reference implementation, written in portable C, and available at: https://github.com/facebook/zstd
+
+The reference implementation provides:
+- A dual [BSD](https://github.com/facebook/zstd/blob/dev/LICENSE) OR [GPLv2](https://github.com/facebook/zstd/blob/dev/COPYING) licensed C library
+- Command line utility producing and decoding `.zst`, `.gz`, `.xz` and `.lz4` files
+
+## Other Language Implementations
+
+If your project requires another programming language, a list of known ports and bindings is provided on the [Zstandard homepage](https://facebook.github.io/zstd/#other-languages).

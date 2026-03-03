@@ -1,0 +1,431 @@
+---
+title: "Platform Support"
+description: "Platform-specific integration instructions for Linux, macOS, Windows, and cross-platform builds"
+---
+
+## Overview
+
+Zstandard is designed to be highly portable and supports major operating systems including Linux, macOS, Windows, and various Unix-like systems.
+
+## Linux
+
+### Standard Build
+
+On most Linux distributions with standard `make` or `gmake`:
+
+```bash
+make
+make install
+```
+
+### Installation Paths
+
+Default installation follows GNU standards:
+
+```bash
+make install PREFIX=/usr/local
+```
+
+This installs:
+- Binaries: `/usr/local/bin/`
+- Libraries: `/usr/local/lib/`
+- Headers: `/usr/local/include/`
+- Man pages: `/usr/local/share/man/`
+
+### Multiarch Support
+
+For multiarch systems (Debian/Ubuntu), libraries should be installed to architecture-specific directories:
+
+<Tabs>
+  <Tab title="x86_64">
+    ```bash
+    make install PREFIX=/usr LIBDIR=/usr/lib/x86_64-linux-gnu
+    ```
+  </Tab>
+  
+  <Tab title="ARM64">
+    ```bash
+    make install PREFIX=/usr LIBDIR=/usr/lib/aarch64-linux-gnu
+    ```
+  </Tab>
+</Tabs>
+
+This ensures correct installation paths and generates proper `pkg-config` files.
+
+### Multithreading on POSIX
+
+Multithreading on Linux requires:
+
+1. **Build macro**: `-DZSTD_MULTITHREAD`
+2. **Link with pthread**: `-pthread`
+
+Example:
+
+```bash
+# Compile with multithreading
+gcc -DZSTD_MULTITHREAD -pthread -o myapp myapp.c -lzstd
+```
+
+### pkg-config Integration
+
+After installation, use `pkg-config`:
+
+```bash
+# Get compilation flags
+pkg-config --cflags libzstd
+
+# Get linking flags
+pkg-config --libs libzstd
+
+# Compile with pkg-config
+gcc -o myapp myapp.c $(pkg-config --cflags --libs libzstd)
+```
+
+For multithreaded static library, set `MT=1` when installing:
+
+```bash
+make install MT=1
+```
+
+## macOS
+
+### Build from Source
+
+```bash
+make
+make install
+```
+
+### Homebrew
+
+Install via Homebrew:
+
+```bash
+brew install zstd
+```
+
+### Dynamic Library Differences
+
+macOS uses different shared library conventions:
+
+- **Extension**: `.dylib` instead of `.so`
+- **Versioning**: `libzstd.1.dylib` (major version)
+- **Install name**: Uses `-install_name` instead of `-soname`
+
+The Makefile automatically handles these differences:
+
+```makefile
+ifeq ($(UNAME_TARGET_SYSTEM), Darwin)
+  SHARED_EXT = dylib
+  SHARED_EXT_MAJOR = $(LIBVER_MAJOR).$(SHARED_EXT)
+  SONAME_FLAGS = -install_name $(LIBDIR)/libzstd.$(SHARED_EXT_MAJOR)
+endif
+```
+
+### Universal Binaries (Apple Silicon + Intel)
+
+Build fat binaries supporting both architectures using CMake:
+
+```bash
+cmake -S . -B build-cmake \
+  -G Ninja \
+  -DCMAKE_OSX_ARCHITECTURES="x86_64;x86_64h;arm64" \
+  -DZSTD_FRAMEWORK=ON
+
+cd build-cmake
+ninja
+sudo ninja install
+```
+
+This creates binaries that run natively on:
+- Apple Silicon (M1/M2/M3)
+- Intel Macs (x86_64)
+
+<Note>
+CMake versions 3.14+ are recommended for iOS-derived platforms.
+</Note>
+
+### iOS Framework
+
+Build iOS framework:
+
+```bash
+# For modern CMake (3.14+)
+cmake -S . -B build-cmake \
+  -DZSTD_FRAMEWORK=ON \
+  -DCMAKE_SYSTEM_NAME=iOS
+
+# For older CMake with iOS-CMake toolchain
+cmake -B build -G Xcode \
+  -DCMAKE_TOOLCHAIN_FILE=<Path To ios.toolchain.cmake> \
+  -DPLATFORM=OS64 \
+  -DZSTD_FRAMEWORK=ON
+```
+
+## Windows
+
+### MinGW + MSYS
+
+Build with MinGW:
+
+```bash
+make libzstd
+```
+
+This creates:
+- `dll\libzstd.dll` - Dynamic library
+- `dll\libzstd.lib` - Import library (for Visual C++)
+
+#### Compiling Applications
+
+With MinGW/gcc:
+
+```bash
+gcc -Iinclude/ test-dll.c -o test-dll dll\libzstd.dll
+```
+
+The executable requires `dll\libzstd.dll` at runtime.
+
+### Visual Studio
+
+Multiple options available in the `build/` directory:
+
+<Tabs>
+  <Tab title="CMake (Recommended)">
+    ```bash
+    # Generate Visual Studio solution
+    cmake -S . -B build-vs -G "Visual Studio 17 2022"
+    
+    # Build
+    cmake --build build-vs --config Release
+    ```
+  </Tab>
+  
+  <Tab title="VS2010 Project">
+    Projects in `build/VS2010/` are compatible with:
+    - Visual Studio 2010
+    - Visual Studio 2012
+    - Visual Studio 2013
+    - Visual Studio 2015
+    - Visual Studio 2017
+    
+    Open `build/VS2010/zstd.sln` in Visual Studio.
+  </Tab>
+  
+  <Tab title="Automated Scripts">
+    Use automated build scripts in `build/VS_scripts/`:
+    
+    ```cmd
+    cd build\VS_scripts
+    build.cmd
+    ```
+    
+    Builds both `zstd` CLI and `libzstd` library without opening Visual Studio.
+  </Tab>
+</Tabs>
+
+### vcpkg Integration
+
+```bash
+git clone https://github.com/Microsoft/vcpkg.git
+cd vcpkg
+.\bootstrap-vcpkg.bat
+.\vcpkg integrate install
+.\vcpkg install zstd
+```
+
+vcpkg automatically handles:
+- Multi-architecture builds
+- Debug/Release configurations
+- Integration with Visual Studio
+
+## AIX
+
+On AIX systems, the Makefile automatically adjusts:
+
+```makefile
+ifeq ($(UNAME_TARGET_SYSTEM), AIX)
+  SONAME_FLAGS =
+endif
+```
+
+Build normally:
+
+```bash
+make
+make install
+```
+
+## Cross-Platform Considerations
+
+### Target System Detection
+
+The build system detects the target platform:
+
+```makefile
+TARGET_SYSTEM ?= $(OS)
+
+ifneq (,$(filter Windows%,$(TARGET_SYSTEM)))
+  EXT =.exe
+else
+  EXT =
+endif
+```
+
+### Cross-Compilation
+
+When cross-compiling from Linux to Windows:
+
+```bash
+make TARGET_SYSTEM=Windows CC=x86_64-w64-mingw32-gcc
+```
+
+For other cross-compilation scenarios, set:
+- `CC` - Cross compiler
+- `TARGET_SYSTEM` - Target OS
+- `UNAME_TARGET_SYSTEM` - Target uname output
+
+### Endianness
+
+Zstandard automatically handles endianness. All magic numbers are read/written using little-endian convention, with automatic conversion on big-endian systems.
+
+## Compiler-Specific Features
+
+### BMI2 Instructions (x86_64)
+
+<Tabs>
+  <Tab title="Static BMI2">
+    ```bash
+    # Force BMI2 instructions
+    make STATIC_BMI2=1
+    
+    # Disable BMI2
+    make STATIC_BMI2=0
+    ```
+  </Tab>
+  
+  <Tab title="Dynamic BMI2">
+    ```bash
+    # Runtime detection (default on x64 with clang/gcc 5+)
+    make DYNAMIC_BMI2=1
+    
+    # Disable runtime detection
+    make DYNAMIC_BMI2=0
+    ```
+  </Tab>
+</Tabs>
+
+BMI2 instructions improve decompression performance on supported CPUs.
+
+### Intrinsics
+
+Disable explicit intrinsics:
+
+```bash
+make ZSTD_NO_INTRINSICS=1
+```
+
+Compiler builtins are still used.
+
+### Assembly Optimizations
+
+On x86_64 Linux, assembly optimizations are automatically enabled. To disable:
+
+```bash
+make CFLAGS="-DZSTD_DISABLE_ASM"
+```
+
+## Memory Usage
+
+### Decoder Buffer Size
+
+Control internal decompression buffer size:
+
+```bash
+# Reduce to 32 KB (default: 64 KB)
+make CFLAGS="-DZSTD_DECODER_INTERNAL_BUFFER=32768"
+```
+
+Smaller values reduce memory footprint but may slightly impact decompression speed.
+
+## Testing
+
+### Quick Smoke Tests
+
+```bash
+make check
+```
+
+### Comprehensive Tests
+
+```bash
+make test
+```
+
+### Without Make
+
+If `make` is unavailable:
+
+```bash
+cd tests
+export ZSTD_BIN=/path/to/zstd
+export DATAGEN_BIN=/path/to/datagen
+./playTest.sh
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+
+<Accordion title="pthread linking errors on Linux">
+Ensure you're linking with `-pthread`:
+
+```bash
+gcc -o myapp myapp.c -lzstd -pthread
+```
+
+For static multithreaded library:
+
+```bash
+make lib-mt
+```
+</Accordion>
+
+<Accordion title="Missing DLL on Windows">
+Ensure `libzstd.dll` is:
+- In the same directory as your executable
+- In a directory listed in `PATH`
+- Or statically link instead
+</Accordion>
+
+<Accordion title="Multiarch installation conflicts">
+Use architecture-specific library directories:
+
+```bash
+make install PREFIX=/usr LIBDIR=/usr/lib/x86_64-linux-gnu
+```
+</Accordion>
+
+<Accordion title="BMI2 performance issues">
+Some CPUs don't benefit from BMI2. Disable if needed:
+
+```bash
+make STATIC_BMI2=0 DYNAMIC_BMI2=0
+```
+</Accordion>
+
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Build Systems" href="/integration/build-systems" icon="hammer">
+Integrate with Make, CMake, Meson, Bazel, or Buck
+</Card>
+
+<Card title="C/C++ Integration" href="/integration/c-cpp" icon="code">
+Learn the C/C++ API
+</Card>
+
+</CardGroup>

@@ -1,0 +1,306 @@
+---
+title: Streaming vs Simple API
+description: When to use simple vs streaming compression API in Zstandard
+---
+
+Zstandard provides two main compression approaches: the Simple API for single-step operations and the Streaming API for processing data in chunks. Understanding when to use each is key to optimal performance.
+
+## Simple API
+
+The Simple API compresses or decompresses data in a single function call, with all data available in memory.
+
+### Simple Compression
+
+```c
+size_t ZSTD_compress(
+    void* dst, size_t dstCapacity,
+    const void* src, size_t srcSize,
+    int compressionLevel
+);
+```
+
+From `lib/zstd.h:154-162`
+
+#### Example Usage
+
+```c
+size_t fSize;
+void* const fBuff = mallocAndLoadFile_orDie(fname, &fSize);
+size_t const cBuffSize = ZSTD_compressBound(fSize);
+void* const cBuff = malloc_orDie(cBuffSize);
+
+/* Compress in one step */
+size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+CHECK_ZSTD(cSize);
+
+free(fBuff);
+free(cBuff);
+```
+
+From `examples/simple_compression.c:19-37`
+
+### Simple Decompression
+
+```c
+size_t ZSTD_decompress(
+    void* dst, size_t dstCapacity,
+    const void* src, size_t compressedSize
+);
+```
+
+<Note>
+`compressedSize` must be the exact size of some number of compressed and/or skippable frames.
+</Note>
+
+From `lib/zstd.h:164-174`
+
+### When to Use Simple API
+
+- **All data fits in memory**: Both source and destination buffers can be allocated
+- **One-shot operations**: Compress or decompress entire data at once
+- **Known data size**: You know the complete size upfront
+- **Simplicity**: Minimal code, easiest to use
+
+<Tip>
+Providing `dstCapacity >= ZSTD_compressBound(srcSize)` guarantees that zstd will have enough space to successfully compress the data.
+</Tip>
+
+From `lib/zstd.h:156-157`
+
+## Streaming API
+
+The Streaming API processes data in chunks, ideal for large files, network streams, or memory-constrained environments.
+
+### Streaming Compression
+
+```c
+ZSTD_CCtx* ZSTD_createCCtx(void);
+
+size_t ZSTD_compressStream2(
+    ZSTD_CCtx* cctx,
+    ZSTD_outBuffer* output,
+    ZSTD_inBuffer* input,
+    ZSTD_EndDirective endOp
+);
+```
+
+From `lib/zstd.h:281,823-826`
+
+#### Buffer Structures
+
+```c
+typedef struct ZSTD_inBuffer_s {
+    const void* src;    /* start of input buffer */
+    size_t size;        /* size of input buffer */
+    size_t pos;         /* position where reading stopped */
+} ZSTD_inBuffer;
+
+typedef struct ZSTD_outBuffer_s {
+    void*  dst;         /* start of output buffer */
+    size_t size;        /* size of output buffer */
+    size_t pos;         /* position where writing stopped */
+} ZSTD_outBuffer;
+```
+
+From `lib/zstd.h:701-711`
+
+#### Example Usage
+
+```c
+/* Create context and set parameters */
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, cLevel);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+/* Create buffers */
+size_t const buffInSize = ZSTD_CStreamInSize();    /* 128 KB */
+void*  const buffIn  = malloc_orDie(buffInSize);
+size_t const buffOutSize = ZSTD_CStreamOutSize();  /* 128 KB */
+void*  const buffOut = malloc_orDie(buffOutSize);
+
+/* Compress loop */
+for (;;) {
+    size_t read = fread_orDie(buffIn, toRead, fin);
+    int const lastChunk = (read < toRead);
+    ZSTD_EndDirective const mode = lastChunk ? ZSTD_e_end : ZSTD_e_continue;
+    
+    ZSTD_inBuffer input = { buffIn, read, 0 };
+    int finished;
+    do {
+        ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+        size_t const remaining = ZSTD_compressStream2(cctx, &output, &input, mode);
+        CHECK_ZSTD(remaining);
+        fwrite_orDie(buffOut, output.pos, fout);
+        finished = lastChunk ? (remaining == 0) : (input.pos == input.size);
+    } while (!finished);
+    
+    if (lastChunk) break;
+}
+
+ZSTD_freeCCtx(cctx);
+```
+
+From `examples/streaming_compression.c:37-93`
+
+### End Directives
+
+```c
+typedef enum {
+    ZSTD_e_continue=0,  /* Collect more data, encoder decides when to output */
+    ZSTD_e_flush=1,     /* Flush any data provided so far */
+    ZSTD_e_end=2        /* Flush remaining data and close frame */
+} ZSTD_EndDirective;
+```
+
+From `lib/zstd.h:783-794`
+
+### Recommended Buffer Sizes
+
+```c
+size_t ZSTD_CStreamInSize(void);   /* Returns 128 KB */
+size_t ZSTD_CStreamOutSize(void);  /* Returns 128 KB */
+```
+
+<Note>
+These sizes are recommendations, not requirements. ZSTD accepts any buffer size, but respecting these recommendations reduces memory shuffling and improves performance.
+</Note>
+
+From `lib/zstd.h:842-843`
+
+### Streaming Decompression
+
+```c
+ZSTD_DCtx* ZSTD_createDCtx(void);
+
+size_t ZSTD_decompressStream(
+    ZSTD_DStream* zds, 
+    ZSTD_outBuffer* output, 
+    ZSTD_inBuffer* input
+);
+```
+
+From `lib/zstd.h:304,948`
+
+Recommended buffer sizes:
+
+```c
+size_t ZSTD_DStreamInSize(void);   /* recommended size for input buffer */
+size_t ZSTD_DStreamOutSize(void);  /* recommended size for output buffer */
+```
+
+From `lib/zstd.h:950-951`
+
+### When to Use Streaming API
+
+- **Large files**: Data doesn't fit in memory
+- **Unknown size**: Data size not known in advance (network streams)
+- **Memory constraints**: Limited RAM available
+- **Progressive processing**: Need to process data as it arrives
+- **Multiple chunks**: Natural chunk boundaries in data
+
+## Memory Usage Comparison
+
+### Simple API Memory
+
+- **Compression**: Allocates entire source + destination buffers
+- **No context reuse**: Creates/destroys context per operation (unless using explicit context)
+
+### Streaming API Memory
+
+- **Fixed buffers**: Uses fixed-size input/output buffers (typically 128 KB each)
+- **Context reuse**: Context can be reused across multiple files
+- **Predictable**: Memory usage independent of total data size
+
+Memory usage example for streaming (level 1-12):
+
+```
+Level  1 : Compression Mem =   434 KB ; Decompression Mem =   75 KB
+Level  3 : Compression Mem =  1335 KB ; Decompression Mem =   75 KB
+Level  5 : Compression Mem =  2367 KB ; Decompression Mem =   75 KB
+Level 10 : Compression Mem =  13086 KB ; Decompression Mem =  75 KB
+```
+
+From `examples/streaming_memory_usage.c:126-129`
+
+## Context Reuse
+
+### Simple API with Context Reuse
+
+```c
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+
+/* Compress multiple files */
+for (int i = 0; i < fileCount; i++) {
+    size_t const cSize = ZSTD_compressCCtx(
+        cctx,
+        dst, dstCapacity,
+        src, srcSize,
+        compressionLevel
+    );
+}
+
+ZSTD_freeCCtx(cctx);
+```
+
+<Tip>
+When doing many compressions, reuse the context. This makes the workload easier for system memory without changing the compression ratio.
+</Tip>
+
+From `examples/simple_compression.c:26` and `lib/zstd.h:270-279,284-295`
+
+### Streaming Context Reuse
+
+Contexts are automatically reusable:
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+/* Use for multiple files */
+compressFile(cctx, "file1.txt");
+compressFile(cctx, "file2.txt");
+compressFile(cctx, "file3.txt");
+
+ZSTD_freeCCtx(cctx);
+```
+
+From `lib/zstd.h:720-721`
+
+## Multithreading
+
+Multithreading is only available with the Streaming API:
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nbThreads);
+```
+
+From `examples/streaming_compression.c:46`
+
+<Warning>
+The Simple API (`ZSTD_compress()`) does not support multithreading. Use `ZSTD_compressStream2()` with `ZSTD_c_nbWorkers >= 1` for parallel compression.
+</Warning>
+
+From `lib/zstd.h:471-479`
+
+## Performance Optimization
+
+### Foreign Function Interfaces
+
+When calling from managed languages (Java, Go) through FFI:
+
+<Tip>
+Reduce interface crossings by using large buffers. It's not rare that performance is spent more in the interface than compression itself. Prefer large buffers (as large as practical) to reduce the number of roundtrips.
+</Tip>
+
+From `lib/zstd.h:835-840`
+
+## API Compatibility
+
+Since v1.3.0, `ZSTD_CStream` and `ZSTD_CCtx` are the same object:
+
+```c
+typedef ZSTD_CCtx ZSTD_CStream;
+```
+
+This means you can use the same context type for both simple and streaming operations.
+
+From `lib/zstd.h:776`

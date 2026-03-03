@@ -1,0 +1,316 @@
+---
+title: Performance
+description: Performance characteristics, benchmarks, and tuning for Zstandard compression
+---
+
+Zstandard is designed for real-time compression scenarios, offering excellent speed while maintaining competitive compression ratios. Understanding its performance characteristics helps you optimize for your use case.
+
+## Benchmark Results
+
+### Desktop Performance (Core i7-9700K @ 4.9GHz)
+
+Tested on Ubuntu 24.04 using the Silesia compression corpus:
+
+| Compressor              | Ratio | Compression | Decompression |
+|-------------------------|-------|-------------|---------------|
+| **zstd 1.5.7 -1**       | 2.896 | 510 MB/s    | 1550 MB/s     |
+| brotli 1.1.0 -1         | 2.883 | 290 MB/s    | 425 MB/s      |
+| zlib 1.3.1 -1           | 2.743 | 105 MB/s    | 390 MB/s      |
+| **zstd 1.5.7 --fast=1** | 2.439 | 545 MB/s    | 1850 MB/s     |
+| quicklz 1.5.0 -1        | 2.238 | 520 MB/s    | 750 MB/s      |
+| **zstd 1.5.7 --fast=4** | 2.146 | 665 MB/s    | 2050 MB/s     |
+| lzo1x 2.10 -1           | 2.106 | 650 MB/s    | 780 MB/s      |
+| lz4 1.10.0              | 2.101 | 675 MB/s    | 3850 MB/s     |
+| snappy 1.2.1            | 2.089 | 520 MB/s    | 1500 MB/s     |
+| lzf 3.6 -1              | 2.077 | 410 MB/s    | 820 MB/s      |
+
+From `README.md:42-53`
+
+<Note>
+Zstandard at level 1 provides better compression ratio than zlib at level 1, while being nearly 5x faster for compression and 4x faster for decompression.
+</Note>
+
+### Server Performance (Core i7-6700K @ 4.0GHz)
+
+Compression Speed vs Ratio characteristics:
+
+- **Low levels (1-5)**: 100-500 MB/s compression
+- **Medium levels (6-12)**: 20-100 MB/s compression
+- **High levels (13-19)**: 5-20 MB/s compression
+- **Ultra levels (20-22)**: 1-5 MB/s compression
+
+From `README.md:67-79`
+
+### Decompression Speed Consistency
+
+**Key characteristic**: Decompression speed is preserved and remains roughly the same at all settings, a property shared by most LZ compression algorithms.
+
+From `README.md:64-65`
+
+<Tip>
+Decompression typically runs at 400-800 MB/s regardless of compression level, making Zstandard excellent for scenarios where data is compressed once but decompressed many times.
+</Tip>
+
+## Memory Usage
+
+### Compression Memory by Level
+
+Memory requirements increase with compression level:
+
+```
+Level  1 : Compression Mem =   434 KB
+Level  3 : Compression Mem =  1335 KB
+Level  5 : Compression Mem =  2367 KB
+Level  7 : Compression Mem =  3712 KB
+Level  9 : Compression Mem =  6574 KB
+Level 10 : Compression Mem = 13086 KB
+Level 12 : Compression Mem = 21277 KB
+```
+
+From `examples/streaming_memory_usage.c:126-132`
+
+### Decompression Memory
+
+Decompression memory remains relatively constant:
+
+```
+Decompression Mem = 75 KB (for standard window sizes)
+```
+
+<Note>
+Decompression memory depends on the window size used during compression, not the compression level.
+</Note>
+
+From `examples/streaming_memory_usage.c:126`
+
+### Buffer Size Recommendations
+
+For optimal performance with streaming API:
+
+```c
+size_t ZSTD_CStreamInSize(void);   // Returns 128 KB (131,072 bytes)
+size_t ZSTD_CStreamOutSize(void);  // Returns 128 KB (131,072 bytes)
+size_t ZSTD_DStreamInSize(void);   // Recommended input size
+size_t ZSTD_DStreamOutSize(void);  // Recommended output size
+```
+
+From `lib/zstd.h:842-843,950-951`
+
+## Multithreading Performance
+
+### Enabling Multithreading
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, nbThreads);
+```
+
+Where `nbThreads`:
+- `0`: Single-threaded mode (default)
+- `1+`: Specific number of threads
+- `0` with env: Detected CPU core count
+
+From `lib/zstd.h:471-479`
+
+### Multithreading Trade-offs
+
+**Benefits**:
+- Improved compression speed on multi-core systems
+- Scales well with available cores
+
+**Costs**:
+- Increased memory usage
+- Slight reduction in compression ratio
+
+<Warning>
+Multithreading increases memory usage. Each worker thread requires additional memory for its own compression context.
+</Warning>
+
+### Job Size Control
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_jobSize, size);
+```
+
+Controls the size of compression jobs when using multiple threads. Default is 0 (automatic based on compression parameters).
+
+From `lib/zstd.h:480-484`
+
+## Long Distance Matching
+
+Long distance matching mode improves compression ratio for files with matches at large distances (up to 128 MB).
+
+### Enabling Long Distance Mode
+
+```bash
+zstd --long file.txt
+zstd --long=27 file.txt  # Specify window log
+```
+
+From `programs/README.md:199`
+
+### Performance Impact
+
+Example with tar of multiple clang versions:
+
+| Method            | Ratio  | Compression | Decompression |
+|-------------------|--------|-------------|---------------|
+| `zstd -1`         | 5.065  | 284.8 MB/s  | 759.3 MB/s    |
+| `zstd -5`         | 5.826  | 124.9 MB/s  | 674.0 MB/s    |
+| `zstd -10`        | 6.504  | 29.5 MB/s   | 771.3 MB/s    |
+| `zstd -1 --long`  | 17.426 | 220.6 MB/s  | 1638.4 MB/s   |
+| `zstd -5 --long`  | 19.661 | 165.5 MB/s  | 1530.6 MB/s   |
+| `zstd -10 --long` | 21.949 | 75.6 MB/s   | 1632.6 MB/s   |
+
+From `programs/README.md:303-310`
+
+<Tip>
+On files with long distance matches, --long mode can triple compression ratio while doubling decompression speed.
+</Tip>
+
+### Memory Requirements
+
+Enabling long distance mode:
+- Sets window size to **128 MB**
+- Increases memory usage for both compressor and decompressor
+- Default window log is 27 (128 MB)
+
+From `programs/README.md:286-287`
+
+## Dictionary Compression Performance
+
+For small data (e.g., 1KB records), dictionary training provides:
+
+- **Better compression ratios**: Dramatically improved on small data
+- **Faster compression**: Compared to no dictionary
+- **Faster decompression**: Compared to no dictionary
+
+From `README.md:100`
+
+<Note>
+Dictionary gains are most effective in the first few KB of data. After that, the algorithm uses previously decoded content.
+</Note>
+
+## Tuning for Performance
+
+### Compression Speed Priority
+
+For maximum compression speed:
+
+```bash
+zstd --fast=4 file.txt        # Fastest mode
+zstd -1 file.txt              # Fast mode with better ratio
+```
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+```
+
+### Compression Ratio Priority
+
+For maximum compression ratio:
+
+```bash
+zstd --ultra -22 file.txt     # Maximum compression
+zstd -19 file.txt             # High compression (no --ultra needed)
+```
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
+```
+
+### Balanced Performance
+
+For most use cases:
+
+```bash
+zstd file.txt                 # Default level 3
+zstd -5 file.txt              # Good balance
+```
+
+## Advanced Performance Parameters
+
+### Window Log
+
+Controls maximum back-reference distance:
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, value);
+```
+
+- Larger values: More compression, more memory
+- Range: 10 to 31 (64-bit) or 30 (32-bit)
+
+From `lib/zstd.h:368-375`
+
+### Hash Log
+
+Controls probe table size:
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_hashLog, value);
+```
+
+- Larger values: Better compression for fast strategies, more memory
+- Range: 6 to 30
+
+From `lib/zstd.h:376-381`
+
+### Strategy Selection
+
+```c
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_fast);
+```
+
+Available strategies (from fast to strong):
+- `ZSTD_fast`: Fastest
+- `ZSTD_dfast`: Fast with better ratio
+- `ZSTD_greedy`: Balanced
+- `ZSTD_lazy`, `ZSTD_lazy2`: Good ratio
+- `ZSTD_btlazy2`: Better ratio
+- `ZSTD_btopt`: Strong compression
+- `ZSTD_btultra`, `ZSTD_btultra2`: Maximum compression
+
+From `lib/zstd.h:336-347`
+
+## Benchmarking
+
+The CLI includes a built-in benchmark mode:
+
+```bash
+# Benchmark default level
+zstd -b file.txt
+
+# Benchmark range of levels
+zstd -b1 -e9 file.txt
+
+# Benchmark with specific time per level
+zstd -b5 -i5 file.txt  # 5 seconds per test
+```
+
+From `programs/README.md:250-252`
+
+Benchmark measures:
+- Compression ratio
+- Compression speed (MB/s)
+- Decompression speed (MB/s)
+
+## Platform-Specific Optimizations
+
+### BMI2 Instructions
+
+Zstandard can leverage BMI2 CPU instructions for better performance:
+
+- **Automatic detection**: Enabled by default on supported platforms
+- **Build-time**: `STATIC_BMI2=1` or `DYNAMIC_BMI2=1`
+- **Performance gain**: Especially on decoder side
+
+From `lib/README.md:167-183`
+
+### SIMD Optimizations
+
+The library includes SIMD optimizations for:
+- Huffman decoding
+- Sequence processing
+- Memory operations
+
+These are automatically enabled based on compiler and platform detection.

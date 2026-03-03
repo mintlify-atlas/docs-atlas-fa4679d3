@@ -1,0 +1,446 @@
+---
+title: "Build Systems"
+description: "Integrate Zstandard with Make, CMake, Meson, Bazel, and Buck build systems"
+---
+
+## Overview
+
+Zstandard supports multiple build systems for easy integration into your project. `make` is the primary and reference build system, while others are periodically updated to maintain compatibility.
+
+<Note>
+When your build system allows it, prefer employing `make` as it is the reference implementation and most up-to-date.
+</Note>
+
+## Make
+
+### Basic Usage
+
+From the repository root:
+
+```bash
+make
+```
+
+This generates:
+- `zstd` CLI in the root directory
+- `libzstd` library in `lib/`
+
+### Standard Targets
+
+<Tabs>
+  <Tab title="Library">
+    ```bash
+    # Build library (both static and dynamic)
+    make lib
+    
+    # Build with release optimizations
+    make lib-release
+    
+    # Force multithreaded build
+    make lib-mt
+    
+    # Force single-threaded build
+    make lib-nomt
+    ```
+  </Tab>
+  
+  <Tab title="Installation">
+    ```bash
+    # Install libraries, headers, and man pages
+    make install
+    
+    # Install with custom prefix
+    make install PREFIX=/usr/local
+    
+    # Multiarch installation (Debian/Ubuntu)
+    make install PREFIX=/usr LIBDIR=/usr/lib/x86_64-linux-gnu
+    ```
+  </Tab>
+  
+  <Tab title="Testing">
+    ```bash
+    # Run basic tests
+    make check
+    
+    # Run comprehensive tests
+    make test
+    ```
+  </Tab>
+</Tabs>
+
+### Compilation Variables
+
+The Makefile follows [GNU Standard Makefile conventions](https://www.gnu.org/prep/standards/html_node/Makefile-Conventions.html):
+
+<CodeGroup>
+
+```bash Directory Variables
+# Customize installation directories
+make install PREFIX=/usr/local \
+             BINDIR=/usr/local/bin \
+             LIBDIR=/usr/local/lib \
+             INCLUDEDIR=/usr/local/include
+```
+
+```bash Compilation Flags
+# Custom CFLAGS
+make CFLAGS="-O3 -march=native"
+
+# Debug build
+make DEBUGLEVEL=1 MOREFLAGS="-g -Werror"
+```
+
+```bash Command Variables
+# Use different compiler
+make CC=clang
+
+# Use different archiver for LTO
+make AR=gcc-ar
+```
+
+</CodeGroup>
+
+### Modular Build Options
+
+Control which modules are compiled:
+
+```bash
+# Build without compression support
+make ZSTD_LIB_COMPRESSION=0
+
+# Build without decompression support
+make ZSTD_LIB_DECOMPRESSION=0
+
+# Build without dictionary builder
+make ZSTD_LIB_DICTBUILDER=0
+
+# Build without deprecated APIs
+make ZSTD_LIB_DEPRECATED=0
+```
+
+### Minimize Binary Size
+
+For size-constrained environments:
+
+```bash
+# Enable all minimization options
+make ZSTD_LIB_MINIFY=1
+
+# Disable inlining
+make ZSTD_NO_INLINE=1
+
+# Strip error strings
+make ZSTD_STRIP_ERROR_STRINGS=1
+
+# Use size-optimized compilation
+make CFLAGS="-Os -flto -ffunction-sections -fdata-sections" \
+     LDFLAGS="-Wl,--gc-sections"
+```
+
+## CMake
+
+### Basic Configuration
+
+<Tabs>
+  <Tab title="From Root">
+    ```bash
+    # Configure from repository root (recommended)
+    cmake -S . -B build-cmake
+    cmake --build build-cmake
+    ```
+  </Tab>
+  
+  <Tab title="From build/cmake">
+    ```bash
+    # Historical workflow (still supported)
+    cd build/cmake
+    mkdir builddir
+    cd builddir
+    cmake ..
+    make
+    ```
+  </Tab>
+</Tabs>
+
+### Installation
+
+```bash
+cmake --build build-cmake
+cmake --install build-cmake
+
+# Or with Make
+cd build-cmake
+make install
+```
+
+### CMake Options
+
+View available options:
+
+```bash
+cd build-cmake
+cmake -LH ..
+```
+
+Configure with options:
+
+<CodeGroup>
+
+```bash Build Options
+cmake -S . -B build-cmake \
+  -DZSTD_BUILD_STATIC=ON \
+  -DZSTD_BUILD_SHARED=OFF \
+  -DZSTD_BUILD_TESTS=ON
+```
+
+```bash Module Options
+cmake -S . -B build-cmake \
+  -DZSTD_BUILD_COMPRESSION=ON \
+  -DZSTD_BUILD_DECOMPRESSION=ON \
+  -DZSTD_BUILD_DICTBUILDER=ON
+```
+
+```bash Advanced Options
+cmake -S . -B build-cmake \
+  -DZSTD_LEGACY_SUPPORT=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+```
+
+</CodeGroup>
+
+### CMake FetchContent
+
+Integrate Zstandard using CMake's FetchContent:
+
+```cmake
+include(FetchContent)
+
+set(ZSTD_BUILD_STATIC ON)
+set(ZSTD_BUILD_SHARED OFF)
+
+FetchContent_Declare(
+    zstd
+    URL "https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR build/cmake
+)
+
+FetchContent_MakeAvailable(zstd)
+
+target_link_libraries(
+    ${PROJECT_NAME}
+    PRIVATE
+    libzstd_static
+)
+
+# On Windows and macOS this is needed
+target_include_directories(
+    ${PROJECT_NAME}
+    PRIVATE
+    ${zstd_SOURCE_DIR}/lib
+)
+```
+
+### Apple Universal Binaries
+
+Build for both Apple Silicon and Intel:
+
+```bash
+cmake -S . -B build-cmake \
+  -G Ninja \
+  -DCMAKE_OSX_ARCHITECTURES="x86_64;x86_64h;arm64" \
+  -DZSTD_FRAMEWORK=ON
+
+cd build-cmake
+ninja
+sudo ninja install
+```
+
+## Meson
+
+### Setup and Build
+
+From the `build/meson` directory:
+
+```bash
+cd build/meson
+
+# Setup build
+meson setup -Dbin_programs=true -Dbin_contrib=true builddir
+
+# Build
+cd builddir
+ninja
+
+# Install
+ninja install
+
+# Staged install
+DESTDIR=./staging ninja install
+```
+
+### Configuration
+
+Configure build options:
+
+```bash
+meson configure
+```
+
+Common options:
+
+<CodeGroup>
+
+```bash Library Type
+# Build static library only
+meson setup -Ddefault_library=static builddir
+
+# Build shared library only
+meson setup -Ddefault_library=shared builddir
+```
+
+```bash Programs
+# Build command-line programs
+meson setup -Dbin_programs=true builddir
+
+# Build contrib programs
+meson setup -Dbin_contrib=true builddir
+```
+
+```bash Build Type
+# Debug build
+meson setup --buildtype=debug builddir
+
+# Release build (default)
+meson setup --buildtype=release builddir
+```
+
+</CodeGroup>
+
+<Note>
+Meson outputs one `libzstd`, either shared or static, depending on the `default_library` option.
+</Note>
+
+## Bazel
+
+### Integration
+
+Integrate Zstandard into your Bazel project using the [Bazel Central Repository](https://registry.bazel.build/modules/zstd):
+
+Add to your `MODULE.bazel` file:
+
+```python
+bazel_dep(name = "zstd", version = "1.5.5")
+```
+
+Or in legacy `WORKSPACE` file:
+
+```python
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "zstd",
+    urls = ["https://github.com/facebook/zstd/archive/v1.5.5.tar.gz"],
+    strip_prefix = "zstd-1.5.5",
+)
+```
+
+### Usage in BUILD Files
+
+```python
+cc_binary(
+    name = "my_app",
+    srcs = ["main.cc"],
+    deps = ["@zstd"],
+)
+```
+
+## Buck
+
+### Building with Buck
+
+From the repository root:
+
+```bash
+buck build programs:zstd
+```
+
+The output binary will be in `buck-out/gen/programs/`.
+
+### Buck Configuration
+
+Zstandard includes BUCK files for library components in `lib/BUCK`:
+
+```python
+# Main library target
+cxx_library(
+    name='zstd',
+    header_namespace='',
+    exported_headers=['zstd.h'],
+    visibility=['PUBLIC'],
+    deps=[
+        ':common',
+        ':compress',
+        ':decompress',
+        ':deprecated',
+    ],
+)
+```
+
+### Using in Your Buck Project
+
+Reference the zstd library in your BUCK file:
+
+```python
+cxx_binary(
+    name = 'my_app',
+    srcs = ['main.c'],
+    deps = [
+        '//path/to/zstd/lib:zstd',
+    ],
+)
+```
+
+## Package Managers
+
+<Tabs>
+  <Tab title="vcpkg">
+    ```bash
+    git clone https://github.com/Microsoft/vcpkg.git
+    cd vcpkg
+    ./bootstrap-vcpkg.sh
+    ./vcpkg integrate install
+    ./vcpkg install zstd
+    ```
+  </Tab>
+  
+  <Tab title="Conan">
+    ```bash
+    conan install --requires="zstd/[*]" --build=missing
+    ```
+  </Tab>
+</Tabs>
+
+## Comparison
+
+| Build System | Best For | Maturity |
+|--------------|----------|----------|
+| **Make** | Reference implementation, most up-to-date | Primary |
+| **CMake** | Cross-platform projects, IDE integration | High |
+| **Meson** | Fast builds, modern syntax | Medium |
+| **Bazel** | Large monorepos, reproducible builds | Medium |
+| **Buck** | Facebook ecosystem, mobile builds | Medium |
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="C/C++ Integration" href="/integration/c-cpp" icon="code">
+Learn how to use Zstandard API in your C/C++ code
+</Card>
+
+<Card title="Platform Support" href="/integration/platform-support" icon="server">
+Platform-specific build instructions
+</Card>
+
+</CardGroup>

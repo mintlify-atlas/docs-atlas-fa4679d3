@@ -1,0 +1,245 @@
+---
+title: "Context Management"
+description: "Functions for creating and managing Zstandard compression and decompression contexts"
+---
+
+Contexts are required for streaming compression and decompression operations. Reusing contexts across multiple operations is recommended for better memory efficiency.
+
+## Compression Context
+
+### ZSTD_createCCtx()
+
+Allocates and initializes a compression context.
+
+```c
+ZSTD_CCtx* ZSTD_createCCtx(void);
+```
+
+### Returns
+
+Pointer to the allocated `ZSTD_CCtx` structure, or `NULL` if allocation failed.
+
+### Usage
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+if (cctx == NULL) {
+    fprintf(stderr, "Failed to create compression context\n");
+    exit(1);
+}
+
+// Set compression parameters
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 5);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+// Use for compression...
+```
+
+<Note>
+  When compressing multiple files or streams, it is recommended to allocate the context once and reuse it for each successive compression operation. This improves memory efficiency and performance.
+</Note>
+
+<Warning>
+  For multi-threaded environments, use one separate context per thread. Contexts are not thread-safe.
+</Warning>
+
+### ZSTD_freeCCtx()
+
+Frees memory allocated for a compression context.
+
+```c
+size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx);
+```
+
+<ParamField path="cctx" type="ZSTD_CCtx*">
+  Compression context to free. Passing `NULL` is safe and performs no operation.
+</ParamField>
+
+### Returns
+
+Always returns 0 (provided for consistency with the API).
+
+### Usage
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+// ... use context ...
+ZSTD_freeCCtx(cctx);
+```
+
+<Tip>
+  The function is compatible with `NULL` pointers, so you can safely call it even if context creation failed.
+</Tip>
+
+## Decompression Context
+
+### ZSTD_createDCtx()
+
+Allocates and initializes a decompression context.
+
+```c
+ZSTD_DCtx* ZSTD_createDCtx(void);
+```
+
+### Returns
+
+Pointer to the allocated `ZSTD_DCtx` structure, or `NULL` if allocation failed.
+
+### Usage
+
+```c
+ZSTD_DCtx* dctx = ZSTD_createDCtx();
+if (dctx == NULL) {
+    fprintf(stderr, "Failed to create decompression context\n");
+    exit(1);
+}
+
+// Use for decompression...
+```
+
+<Note>
+  When decompressing many files or streams, allocate the context once and reuse it for each successive decompression operation. This makes the workload friendlier for system memory.
+</Note>
+
+<Warning>
+  Use one context per thread for parallel execution. Contexts are not thread-safe.
+</Warning>
+
+### ZSTD_freeDCtx()
+
+Frees memory allocated for a decompression context.
+
+```c
+size_t ZSTD_freeDCtx(ZSTD_DCtx* dctx);
+```
+
+<ParamField path="dctx" type="ZSTD_DCtx*">
+  Decompression context to free. Passing `NULL` is safe and performs no operation.
+</ParamField>
+
+### Returns
+
+Always returns 0 (provided for consistency with the API).
+
+### Usage
+
+```c
+ZSTD_DCtx* dctx = ZSTD_createDCtx();
+// ... use context ...
+ZSTD_freeDCtx(dctx);
+```
+
+## Complete Example
+
+Here's a complete example showing context creation, usage, and cleanup:
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <zstd.h>
+
+void compress_file(const char* input_file, const char* output_file) {
+    // Create compression context
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    if (cctx == NULL) {
+        fprintf(stderr, "Failed to create compression context\n");
+        return;
+    }
+    
+    // Set compression level
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 3);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    
+    // Allocate buffers
+    size_t const buffInSize = ZSTD_CStreamInSize();
+    void* buffIn = malloc(buffInSize);
+    size_t const buffOutSize = ZSTD_CStreamOutSize();
+    void* buffOut = malloc(buffOutSize);
+    
+    FILE* fin = fopen(input_file, "rb");
+    FILE* fout = fopen(output_file, "wb");
+    
+    // Compression loop
+    size_t const toRead = buffInSize;
+    for (;;) {
+        size_t read = fread(buffIn, 1, toRead, fin);
+        int lastChunk = (read < toRead);
+        ZSTD_EndDirective mode = lastChunk ? ZSTD_e_end : ZSTD_e_continue;
+        
+        ZSTD_inBuffer input = { buffIn, read, 0 };
+        int finished;
+        do {
+            ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+            size_t remaining = ZSTD_compressStream2(cctx, &output, &input, mode);
+            
+            if (ZSTD_isError(remaining)) {
+                fprintf(stderr, "Compression error: %s\n", 
+                        ZSTD_getErrorName(remaining));
+                goto cleanup;
+            }
+            
+            fwrite(buffOut, 1, output.pos, fout);
+            finished = lastChunk ? (remaining == 0) : (input.pos == input.size);
+        } while (!finished);
+        
+        if (lastChunk) break;
+    }
+    
+cleanup:
+    // Free resources
+    ZSTD_freeCCtx(cctx);
+    fclose(fin);
+    fclose(fout);
+    free(buffIn);
+    free(buffOut);
+}
+
+void decompress_file(const char* input_file, const char* output_file) {
+    // Create decompression context
+    ZSTD_DCtx* dctx = ZSTD_createDCtx();
+    if (dctx == NULL) {
+        fprintf(stderr, "Failed to create decompression context\n");
+        return;
+    }
+    
+    // Allocate buffers
+    size_t const buffInSize = ZSTD_DStreamInSize();
+    void* buffIn = malloc(buffInSize);
+    size_t const buffOutSize = ZSTD_DStreamOutSize();
+    void* buffOut = malloc(buffOutSize);
+    
+    FILE* fin = fopen(input_file, "rb");
+    FILE* fout = fopen(output_file, "wb");
+    
+    // Decompression loop
+    size_t read;
+    while ((read = fread(buffIn, 1, buffInSize, fin))) {
+        ZSTD_inBuffer input = { buffIn, read, 0 };
+        
+        while (input.pos < input.size) {
+            ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+            size_t ret = ZSTD_decompressStream(dctx, &output, &input);
+            
+            if (ZSTD_isError(ret)) {
+                fprintf(stderr, "Decompression error: %s\n", 
+                        ZSTD_getErrorName(ret));
+                goto cleanup;
+            }
+            
+            fwrite(buffOut, 1, output.pos, fout);
+        }
+    }
+    
+cleanup:
+    // Free resources
+    ZSTD_freeDCtx(dctx);
+    fclose(fin);
+    fclose(fout);
+    free(buffIn);
+    free(buffOut);
+}
+```
+
+<Note>
+  The examples above use `ZSTD_CCtx` and `ZSTD_DCtx`. Since v1.3.0, `ZSTD_CStream` and `ZSTD_CCtx` are the same type, as are `ZSTD_DStream` and `ZSTD_DCtx`. The distinct naming is maintained for compatibility with older code.
+</Note>

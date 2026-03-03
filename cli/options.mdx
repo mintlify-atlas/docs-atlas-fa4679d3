@@ -1,0 +1,301 @@
+---
+title: Complete Option Reference
+description: Comprehensive reference for all zstd command-line options and parameters
+---
+
+Complete reference for all `zstd` command-line options, organized by category.
+
+## Operation Modes
+
+| Option | Description |
+|--------|-------------|
+| `-z, --compress` | Compress (default mode) |
+| `-d, --decompress, --uncompress` | Decompress files |
+| `-t, --test` | Test compressed file integrity |
+| `-b#` | Benchmark mode with compression level # |
+| `--train FILES` | Create dictionary from training files |
+| `-l, --list` | Display information about compressed files |
+
+## Compression Levels
+
+| Option | Description |
+|--------|-------------|
+| `-#` | Set compression level (1-19, default: 3) |
+| `--ultra` | Enable ultra compression (levels 20-22) |
+| `--max` | Maximum compression (very slow, high memory) |
+| `--fast[=#]` | Ultra-fast compression (default: --fast=1) |
+
+## Output Control
+
+| Option | Description |
+|--------|-------------|
+| `-o OUTPUT` | Write output to OUTPUT file |
+| `-c, --stdout` | Write to stdout and keep input files |
+| `-k, --keep` | Keep input files (default) |
+| `--rm` | Remove input files after processing |
+| `-f, --force` | Force overwrite, disable checks |
+
+## Input/Output Files
+
+| Option | Description |
+|--------|-------------|
+| `-r` | Operate recursively on directories |
+| `--filelist FILE` | Read list of files from FILE |
+| `--output-dir-flat DIR` | Store files in DIR (flat structure) |
+| `--output-dir-mirror DIR` | Store files in DIR (preserve structure) |
+| `--` | Treat remaining arguments as files |
+
+## Verbosity and Progress
+
+| Option | Description |
+|--------|-------------|
+| `-v, --verbose` | Verbose mode (can be repeated) |
+| `-q, --quiet` | Suppress warnings (repeat for errors too) |
+| `-h` | Display short help |
+| `-H, --help` | Display full help |
+| `-V, --version` | Display version number |
+| `--[no-]progress` | Force show/hide progress counter |
+| `--trace LOG` | Log tracing information to LOG |
+
+## Multi-threading
+
+| Option | Description |
+|--------|-------------|
+| `-T#, --threads=#` | Use # threads (0 = auto-detect cores) |
+| `--single-thread` | Single thread for I/O and compression |
+| `--auto-threads={physical\|logical}` | Choose physical or logical cores for -T0 |
+
+## Dictionary
+
+| Option | Description |
+|--------|-------------|
+| `-D DICT` | Use DICT as dictionary |
+| `--train FILES` | Train dictionary from FILES |
+| `--train-cover[=k=#,d=#,...]` | Use cover algorithm |
+| `--train-fastcover[=k=#,d=#,f=#,...]` | Use fast cover algorithm (default) |
+| `--train-legacy[=s=#]` | Use legacy algorithm |
+| `-o NAME` | Dictionary output name (default: dictionary) |
+| `--maxdict=#` | Limit dictionary size (default: 112640) |
+| `--dictID=#` | Force dictionary ID |
+| `--no-dictID` | Don't store dictionary ID in header |
+| `--[no-]mmap-dict` | Memory-map dictionary file |
+
+## Checksums and Validation
+
+| Option | Description |
+|--------|-------------|
+| `-C, --[no-]check` | Add/validate XXH64 checksums (default: enabled) |
+| `--[no-]content-size` | Store original size in header (default: enabled) |
+| `-M#, --memory=#` | Set memory usage limit |
+
+## Compression Options
+
+| Option | Description |
+|--------|-------------|
+| `--adapt[=min=#,max=#]` | Dynamically adapt compression level |
+| `--long[=#]` | Enable long distance matching (default: 27) |
+| `--patch-from=FILE` | Use FILE as reference for diff engine |
+| `-B#` | Set job size (default: 0 = automatic) |
+| `--rsyncable` | Compress using rsync-friendly method |
+| `--exclude-compressed` | Only compress uncompressed files |
+| `--[no-]compress-literals` | Force (un)compressed literals |
+| `--[no-]row-match-finder` | Enable/disable row-based match finder |
+
+## Streaming Options
+
+| Option | Description |
+|--------|-------------|
+| `--stream-size=#` | Specify exact streaming input size |
+| `--size-hint=#` | Hint for streaming input size |
+| `--target-compressed-block-size=#` | Target compressed block size |
+
+## Decompression Options
+
+| Option | Description |
+|--------|-------------|
+| `--[no-]sparse` | Enable/disable sparse file support |
+| `--[no-]pass-through` | Pass through uncompressed files as-is |
+| `--test` | Test file integrity without decompressing |
+
+## Format Options
+
+| Option | Description |
+|--------|-------------|
+| `--format=zstd` | Compress to .zst format (default) |
+| `--format=gzip` | Compress to .gz format |
+| `--format=xz` | Compress to .xz format |
+| `--format=lzma` | Compress to .lzma format |
+| `--format=lz4` | Compress to .lz4 format |
+
+## Benchmark Options
+
+| Option | Description |
+|--------|-------------|
+| `-b#` | Benchmark with compression level # |
+| `-e#` | Test levels from -b# to -e# |
+| `-i#` | Minimum evaluation time in seconds (default: 3) |
+| `-B#` | Cut file into chunks of size # |
+| `-S` | Output one result per input file |
+| `-D dictionary` | Benchmark using dictionary |
+| `--priority=rt` | Set process priority to real-time |
+
+## Advanced Compression Parameters
+
+All parameters use the `--zstd=` prefix with comma-separated options:
+
+```bash
+zstd --zstd=wlog=23,clog=23,hlog=22,slog=6,mml=3,tlen=48,strat=6 file.txt
+```
+
+### Strategy
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `strategy=, strat=` | 1-9 | Match finding strategy |
+
+**Strategy values:**
+1. `ZSTD_fast` - Fastest
+2. `ZSTD_dfast`
+3. `ZSTD_greedy`
+4. `ZSTD_lazy`
+5. `ZSTD_lazy2`
+6. `ZSTD_btlazy2`
+7. `ZSTD_btopt`
+8. `ZSTD_btultra`
+9. `ZSTD_btultra2` - Strongest
+
+### Window Parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `windowLog=, wlog=` | 10-31 | Maximum bits for match distance |
+| `hashLog=, hlog=` | 6-30 | Hash table size (bits) |
+| `chainLog=, clog=` | 6-30 | Secondary search structure size |
+| `searchLog=, slog=` | 1 to wlog-1 | Number of searches in chain/tree |
+
+### Match Parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `minMatch=, mml=` | 3-7 | Minimum match length |
+| `targetLength=, tlen=` | 0-128KB | Target match length (strategy-dependent) |
+
+### Multi-threading Parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `overlapLog=, ovlog=` | 0-9 | Data overlap between jobs |
+| `--jobsize=#` | 512KB+ | Size of each compression job |
+
+### Long Distance Matching Parameters
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `ldmHashLog=, lhlog=` | 6-30 | LDM hash table size |
+| `ldmMinMatch=, lmml=` | 4-4096 | Minimum LDM match length |
+| `ldmBucketSizeLog=, lblog=` | 1-8 | LDM hash bucket size |
+| `ldmHashRateLog=, lhrlog=` | varies | LDM hash insertion frequency |
+
+## I/O Options
+
+| Option | Description |
+|--------|-------------|
+| `--[no-]asyncio` | Use asynchronous I/O (default: enabled) |
+
+## Inspection Options
+
+| Option | Description |
+|--------|-------------|
+| `--show-default-cparams` | Display default parameters for input |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ZSTD_CLEVEL` | Default compression level (1-19) |
+| `ZSTD_NBTHREADS` | Default number of threads |
+
+## Integer Suffixes
+
+Many numeric options accept suffixes:
+
+| Suffix | Multiplier | Aliases |
+|--------|------------|----------|
+| `KiB` | 1,024 | `Ki`, `K`, `KB` |
+| `MiB` | 1,048,576 | `Mi`, `M`, `MB` |
+
+## Special Symlinks
+
+Invoking `zstd` through these symlinks triggers special behavior:
+
+| Symlink | Equivalent Command |
+|---------|--------------------|
+| `zstdmt` | `zstd -T0` |
+| `unzstd` | `zstd -d` |
+| `zstdcat` | `zstd -dcf` |
+| `zcat` | `zstd -dcf` |
+| `gzip` | `zstd --format=gzip --rm` |
+| `gunzip` | `zstd -d --format=gzip --rm` |
+| `ungz` | `zstd -d --format=gzip --rm` |
+| `xz` | `zstd --format=xz --rm` |
+| `unxz` | `zstd -d --format=xz --rm` |
+| `lzma` | `zstd --format=lzma --rm` |
+| `unlzma` | `zstd -d --format=lzma --rm` |
+| `lz4` | `zstd --format=lz4` |
+| `unlz4` | `zstd -d --format=lz4` |
+
+## Parameter Aggregation
+
+Short options can be combined:
+
+```bash
+# These are equivalent
+zstd -b1 -e18 -i1 file.txt
+zstd -b1e18i1 file.txt
+```
+
+## Cover Algorithm Parameters
+
+**--train-cover parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `k=#` | auto (50-2000) | Segment size |
+| `d=#` | tries 6 and 8 | Subsegment size |
+| `steps=#` | 40 | Number of optimization steps |
+| `split=#` | 100 | Train/test split percentage |
+| `shrink[=#]` | disabled | Shrink dictionary to optimal size |
+
+**--train-fastcover parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `k=#` | auto (50-2000) | Segment size |
+| `d=#` | 8 | Subsegment size (6 or 8 only) |
+| `f=#` | 20 | Log of frequency array size |
+| `steps=#` | 40 | Number of optimization steps |
+| `split=#` | 75 | Train/test split percentage |
+| `accel=#` | 1 | Acceleration factor |
+| `shrink[=#]` | disabled | Shrink dictionary to optimal size |
+
+**--train-legacy parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `selectivity=#, s=#` | 9 | Dictionary density (lower = denser) |
+
+## Return Codes
+
+The `zstd` CLI returns standard exit codes:
+
+- `0` - Success
+- `1` - Error occurred
+
+## gzip Compatibility Options
+
+When invoked as `gzip`, additional options are available:
+
+| Option | Description |
+|--------|-------------|
+| `-n, --no-name` | Don't store filename/timestamps (no-op, default) |
+| `--best` | Alias for `-9` |

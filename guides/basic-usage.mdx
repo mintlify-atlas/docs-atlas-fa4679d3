@@ -1,0 +1,205 @@
+---
+title: Basic Usage
+description: Learn how to perform simple compression and decompression with Zstandard
+---
+
+This guide covers the most basic compression and decompression patterns using Zstandard's simple API.
+
+## Simple Compression
+
+The simplest way to compress data is using the `ZSTD_compress()` function, which compresses data in a single operation.
+
+<Steps>
+  <Step title="Calculate buffer size">
+    Use `ZSTD_compressBound()` to determine the maximum size needed for the compressed output:
+
+    ```c
+    size_t fSize;  // Size of input data
+    size_t const cBuffSize = ZSTD_compressBound(fSize);
+    void* const cBuff = malloc(cBuffSize);
+    ```
+
+    This guarantees that the destination buffer will have enough space for compression.
+  </Step>
+
+  <Step title="Compress the data">
+    Call `ZSTD_compress()` with your source data and compression level:
+
+    ```c
+    size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+    CHECK_ZSTD(cSize);
+    ```
+
+    The last parameter is the compression level (1-22). Level 1 is the fastest, while higher levels provide better compression at the cost of speed.
+  </Step>
+
+  <Step title="Handle the result">
+    The return value is the actual compressed size. Save or use the compressed data:
+
+    ```c
+    saveFile_orDie(outputFile, cBuff, cSize);
+    printf("%u -> %u bytes\n", (unsigned)fSize, (unsigned)cSize);
+    ```
+  </Step>
+</Steps>
+
+### Complete Example
+
+Here's a complete compression function from `examples/simple_compression.c`:
+
+```c
+static void compress_orDie(const char* fname, const char* oname)
+{
+    size_t fSize;
+    void* const fBuff = mallocAndLoadFile_orDie(fname, &fSize);
+    size_t const cBuffSize = ZSTD_compressBound(fSize);
+    void* const cBuff = malloc_orDie(cBuffSize);
+
+    /* Compress.
+     * If you are doing many compressions, you may want to reuse the context.
+     * See the multiple_simple_compression.c example.
+     */
+    size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+    CHECK_ZSTD(cSize);
+
+    saveFile_orDie(oname, cBuff, cSize);
+
+    /* success */
+    printf("%25s : %6u -> %7u - %s \n", fname, (unsigned)fSize, (unsigned)cSize, oname);
+
+    free(fBuff);
+    free(cBuff);
+}
+```
+
+## Simple Decompression
+
+Decompression follows a similar pattern but requires knowing the decompressed size.
+
+<Steps>
+  <Step title="Get the original size">
+    Extract the content size from the compressed frame header:
+
+    ```c
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    CHECK(rSize != ZSTD_CONTENTSIZE_ERROR, "not compressed by zstd!");
+    CHECK(rSize != ZSTD_CONTENTSIZE_UNKNOWN, "original size unknown!");
+    ```
+
+    By default, zstd writes the content size in the header when it is known.
+  </Step>
+
+  <Step title="Allocate destination buffer">
+    Create a buffer large enough for the decompressed data:
+
+    ```c
+    void* const rBuff = malloc_orDie((size_t)rSize);
+    ```
+  </Step>
+
+  <Step title="Decompress the data">
+    Call `ZSTD_decompress()` to restore the original data:
+
+    ```c
+    size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+    CHECK_ZSTD(dSize);
+    ```
+
+    Zstd will verify that the decompressed size matches the frame header.
+  </Step>
+</Steps>
+
+### Complete Example
+
+Here's a complete decompression function from `examples/simple_decompression.c`:
+
+```c
+static void decompress(const char* fname)
+{
+    size_t cSize;
+    void* const cBuff = mallocAndLoadFile_orDie(fname, &cSize);
+    /* Read the content size from the frame header. For simplicity we require
+     * that it is always present. By default, zstd will write the content size
+     * in the header when it is known. If you can't guarantee that the frame
+     * content size is always written into the header, either use streaming
+     * decompression, or ZSTD_decompressBound().
+     */
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    CHECK(rSize != ZSTD_CONTENTSIZE_ERROR, "%s: not compressed by zstd!", fname);
+    CHECK(rSize != ZSTD_CONTENTSIZE_UNKNOWN, "%s: original size unknown!", fname);
+
+    void* const rBuff = malloc_orDie((size_t)rSize);
+
+    /* Decompress.
+     * If you are doing many decompressions, you may want to reuse the context
+     * and use ZSTD_decompressDCtx(). If you want to set advanced parameters,
+     * use ZSTD_DCtx_setParameter().
+     */
+    size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+    CHECK_ZSTD(dSize);
+    /* When zstd knows the content size, it will error if it doesn't match. */
+    CHECK(dSize == rSize, "Impossible because zstd will check this condition!");
+
+    /* success */
+    printf("%25s : %6u -> %7u \n", fname, (unsigned)cSize, (unsigned)rSize);
+
+    free(rBuff);
+    free(cBuff);
+}
+```
+
+## Compression Levels
+
+Zstandard supports compression levels from 1 to 22:
+
+- **Levels 1-3**: Fast compression with moderate compression ratio
+- **Level 3**: Default level (`ZSTD_CLEVEL_DEFAULT`)
+- **Levels 4-19**: Progressively better compression at the cost of speed
+- **Levels 20-22**: Ultra compression levels (require more memory)
+- **Negative levels**: Even faster compression with lower ratios
+
+```c
+// Fast compression
+ZSTD_compress(dst, dstSize, src, srcSize, 1);
+
+// Default compression
+ZSTD_compress(dst, dstSize, src, srcSize, ZSTD_CLEVEL_DEFAULT);
+
+// Maximum compression
+ZSTD_compress(dst, dstSize, src, srcSize, 22);
+```
+
+## Reusing Contexts
+
+For better performance when compressing multiple files, reuse the compression context:
+
+<CodeGroup>
+```c Simple (creates context each time)
+for (int i = 0; i < numFiles; i++) {
+    ZSTD_compress(dst, dstSize, src, srcSize, level);
+}
+```
+
+```c Optimized (reuses context)
+ZSTD_CCtx* const cctx = ZSTD_createCCtx();
+for (int i = 0; i < numFiles; i++) {
+    ZSTD_compressCCtx(cctx, dst, dstSize, src, srcSize, level);
+}
+ZSTD_freeCCtx(cctx);
+```
+</CodeGroup>
+
+The same applies to decompression with `ZSTD_DCtx`.
+
+## Error Handling
+
+Most zstd functions return a `size_t` value that should be checked for errors:
+
+```c
+size_t const result = ZSTD_compress(dst, dstSize, src, srcSize, level);
+if (ZSTD_isError(result)) {
+    fprintf(stderr, "Compression error: %s\n", ZSTD_getErrorName(result));
+    return ERROR;
+}
+// result now contains the compressed size
+```

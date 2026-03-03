@@ -1,0 +1,188 @@
+---
+title: Contributing
+description: Guidelines for contributing to the Zstandard project
+---
+
+We want to make contributing to Zstandard as easy and transparent as possible.
+
+## Development Process
+
+New versions are being developed in the `dev` branch, or in their own feature branch. When they are deemed ready for a release, they are merged into `release`.
+
+As a consequence, **all contributions must stage first through `dev` or their own feature branch**.
+
+## Pull Requests
+
+We actively welcome your pull requests.
+
+1. Fork the repo and create your branch from `dev`.
+2. If you've added code that should be tested, add tests.
+3. If you've changed APIs, update the documentation.
+4. Ensure the test suite passes.
+5. Make sure your code lints.
+6. If you haven't already, complete the Contributor License Agreement ("CLA").
+
+## Contributor License Agreement ("CLA")
+
+In order to accept your pull request, we need you to submit a CLA. You only need to do this once to work on any of Facebook's open source projects.
+
+Complete your CLA here: https://code.facebook.com/cla
+
+## Workflow
+
+Zstd uses a branch-based workflow for making changes to the codebase. Typically, zstd will use a new branch per sizable topic. For smaller changes, it is okay to lump multiple related changes into a branch.
+
+Our contribution process works in three main stages:
+
+### 1. Local Development
+
+**Update:**
+- Checkout your fork of zstd if you have not already:
+  ```bash
+  git checkout https://github.com/<username>/zstd
+  cd zstd
+  ```
+- Update your local dev branch:
+  ```bash
+  git pull https://github.com/facebook/zstd dev
+  git push origin dev
+  ```
+
+**Topic and development:**
+- Make a new branch on your fork about the topic you're developing for:
+  ```bash
+  # branch names should be concise but sufficiently informative
+  git checkout -b <branch-name>
+  git push origin <branch-name>
+  ```
+- Make commits and push:
+  ```bash
+  # make some changes
+  git add -u && git commit -m <message>
+  git push origin <branch-name>
+  ```
+- Run local tests to ensure that your changes didn't break existing functionality:
+  - Quick check: `make check`
+  - Longer check: `make test`
+
+### 2. Code Review and CI Tests
+
+**Ensure CI tests pass:**
+- Before sharing anything to the community, create a pull request in your own fork against the dev branch and make sure that all GitHub Actions CI tests pass.
+- Ensure that static analysis passes on your development machine. See the Static Analysis section below.
+
+**Create a pull request:**
+- When you are ready to share your changes to the community, create a pull request from your branch to `facebook:dev`.
+- From there, select the branch where you made changes as your source branch and `facebook:dev` as the destination.
+- Examine the diff presented between the two branches to make sure there is nothing unexpected.
+
+**Write a good pull request description:**
+- While there is no strict template, we would like contributors to sufficiently summarize and motivate the changes they are proposing. We recommend addressing the following points:
+  - Is this pull request important and why?
+  - Is it addressing an issue? If so, what issue? (provide links)
+  - Is this a new feature? If so, why is it useful and/or necessary?
+  - Are there background references and documents that reviewers should be aware of?
+- Note: make sure to point out any design and architectural decisions that you made and the rationale behind them.
+- Note: if you have been working with a specific user and would like them to review your work, mention them using (@username)
+
+**Submit the pull request and iterate with feedback.**
+
+### 3. Merge and Release
+
+**Getting approval:**
+- You will have to iterate on your changes with feedback from other collaborators to reach a point where your pull request can be safely merged.
+- To avoid too many comments on style and convention, make sure that you have a look at our style section below before creating a pull request.
+- Eventually, someone from the zstd team will approve your pull request and not long after merge it into the dev branch.
+
+**Housekeeping:**
+- Most PRs are linked with one or more Github issues. If this is the case for your PR, make sure the corresponding issue is mentioned. If your change 'fixes' or completely addresses the issue at hand, then please indicate this by requesting that an issue be closed by commenting.
+- Just because your changes have been merged does not mean the topic or larger issue is complete. Remember that the change must make it to an official zstd release for it to be meaningful. We recommend that contributors track the activity on their pull request and corresponding issue(s) page(s) until their change makes it to the next release of zstd.
+
+## Static Analysis
+
+Static analysis is a process for examining the correctness or validity of a program without actually executing it. Zstd uses clang's `scan-build` tool for static analysis.
+
+You can install it by following the instructions for your OS on https://clang-analyzer.llvm.org/scan-build.
+
+Once installed, you can ensure that our static analysis tests pass on your local development machine by running:
+```bash
+make staticAnalyze
+```
+
+In general, you can use `scan-build` to static analyze any build script. For example:
+```bash
+scan-build make -C contrib/largeNbDicts largeNbDicts
+```
+
+## Continuous Integration
+
+CI tests run every time a pull request (PR) is created or updated. The exact tests that get run will depend on the destination branch you specify. Some tests take longer to run than others.
+
+Currently, our CI is set up to run:
+- A short series of tests when creating a PR to the dev branch
+- A longer series of tests when creating a PR to the release branch
+
+Almost all of zstd's CI runs on GitHub Actions (configured at `.github/workflows`), which will automatically run on PRs to your own fork. A small number of tests run on other services (e.g. Travis CI, Circle CI, Appveyor).
+
+## Performance
+
+Performance is extremely important for zstd and we only merge pull requests whose performance landscape and corresponding trade-offs have been adequately analyzed, reproduced, and presented.
+
+This high bar for performance means that every PR which has the potential to impact performance takes a very long time for us to properly review. Please keep the following in mind before submitting a performance related PR:
+
+1. Zstd isn't as old as gzip but it has been around for time now and its evolution is very well documented via past Github issues and pull requests. Your particular performance optimization may have already been considered in the past.
+
+2. The distinction between noise and actual performance gains can unfortunately be very subtle especially when microbenchmarking extremely small wins or losses. The only remedy is extensive benchmarking. You will be doing us a great favor if you take the time to run extensive, long-duration, and potentially cross-(os, platform, process, etc) benchmarks on your end before submitting a PR.
+
+3. Optimizing performance for a certain OS, processor vendor, compiler, or network system is a perfectly legitimate thing to do as long as it does not harm the overall performance health of Zstd.
+
+## Coding Style
+
+It's a pretty long topic, which is difficult to summarize in a single paragraph. As a rule of thumbs, try to imitate the coding style of similar lines of codes around your contribution.
+
+The following is a non-exhaustive list of rules employed in zstd code base:
+
+### C90
+
+This code base is following strict C90 standard, with 2 extensions: 64-bit `long long` types, and variadic macros. This rule is applied strictly to code within `lib/` and `programs/`. Sub-project in `contrib/` are allowed to use other conventions.
+
+### C++ Direct Compatibility
+
+All public symbol declarations must be wrapped in `extern "C" { … }`, so that this project can be compiled as C++98 code, and linked into C++ applications.
+
+### Minimal Frugal
+
+This design requirement is fundamental to preserve the portability of the code base.
+
+**Dependencies:**
+- Reduce dependencies to the minimum possible level.
+- Within `lib/`, this policy is even more drastic. The only external dependencies allowed are `<assert.h>`, `<stdlib.h>`, `<string.h>`, and even then, not directly.
+- Within the project, there is a strict hierarchy of dependencies that must be respected.
+
+**Resources:**
+- Functions in `lib/` must use very little stack space, several dozens of bytes max. Everything larger must use the heap allocator, or require a scratch buffer to be emplaced manually.
+
+### Naming
+
+- All public symbols are prefixed with `ZSTD_`
+- For symbols (functions and variables), naming convention is `PREFIX_camelCase`
+- Multi-words names generally consist of an action followed by object (e.g., `ZSTD_createCCtx()`)
+- Prefer positive actions (`goBackward` rather than `notGoForward`)
+- Type names follow similar convention, except that they are allowed to start by an Uppercase letter (e.g., `ZSTD_CCtx`, `ZSTD_CDict`)
+- Macro names are all Capital letters
+- File names are all lowercase letters using `snake_case`. File names **must** be unique across the entire code base.
+
+### Qualifiers
+
+- This code base is `const` friendly. Any variable that can be `const` (aka. read-only) **must** be `const`.
+- If a function must be inlined, mention it explicitly, using project's own portable macros, such as `FORCE_INLINE_ATTR`.
+
+### General Layout
+
+- 4 spaces for indentation rather than tabs
+- Code documentation shall directly precede function declaration or implementation
+- Function implementations and its code documentation should be preceded and followed by an empty line
+
+## License
+
+By contributing to Zstandard, you agree that your contributions will be licensed under both the [LICENSE](https://github.com/facebook/zstd/blob/dev/LICENSE) file and the [COPYING](https://github.com/facebook/zstd/blob/dev/COPYING) file in the root directory of this source tree.

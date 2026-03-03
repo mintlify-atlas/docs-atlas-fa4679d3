@@ -1,0 +1,306 @@
+---
+title: Simple Decompression API
+description: Single-step decompression functions for decompressing zstd-compressed data
+---
+
+The Simple Decompression API provides one-shot functions for decompressing data in a single call. These functions are ideal for decompressing data when the entire compressed input is available in memory.
+
+## ZSTD_decompress()
+
+Decompresses zstd-compressed data into an already allocated destination buffer.
+
+```c
+size_t ZSTD_decompress(void* dst, size_t dstCapacity,
+                       const void* src, size_t compressedSize);
+```
+
+### Parameters
+
+<ParamField path="dst" type="void*">
+  Pointer to the destination buffer where decompressed data will be written.
+</ParamField>
+
+<ParamField path="dstCapacity" type="size_t">
+  Size of the destination buffer. This is an upper bound of the original size to regenerate. Use `ZSTD_getFrameContentSize()` to get the exact decompressed size from the frame header.
+</ParamField>
+
+<ParamField path="src" type="const void*">
+  Pointer to the compressed data.
+</ParamField>
+
+<ParamField path="compressedSize" type="size_t">
+  Must be the exact size of some number of compressed and/or skippable frames. Multiple compressed frames can be decompressed at once with this method. The result will be the concatenation of all decompressed frames, back to back.
+</ParamField>
+
+### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns the number of bytes decompressed into `dst` (&lt;= `dstCapacity`), or an error code if it fails (which can be tested using `ZSTD_isError()`).
+</ResponseField>
+
+### Important Notes
+
+- `compressedSize` must be the **exact** size of compressed data
+- If the maximum upper bound isn't known, prefer using streaming mode to decompress data
+- First frame's decompressed size can be extracted using `ZSTD_getFrameContentSize()`
+
+### Example
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <zstd.h>
+
+void decompress_file(const char* fname)
+{
+    size_t cSize;
+    void* const cBuff = mallocAndLoadFile(fname, &cSize);
+    
+    // Read the content size from the frame header
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    
+    if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+        fprintf(stderr, "%s: not compressed by zstd!\n", fname);
+        exit(1);
+    }
+    if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+        fprintf(stderr, "%s: original size unknown!\n", fname);
+        exit(1);
+    }
+    
+    void* const rBuff = malloc((size_t)rSize);
+    
+    // Decompress
+    size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+    if (ZSTD_isError(dSize)) {
+        fprintf(stderr, "Decompression error: %s\n", ZSTD_getErrorName(dSize));
+        exit(1);
+    }
+    
+    // When zstd knows the content size, it will error if it doesn't match
+    if (dSize != rSize) {
+        fprintf(stderr, "Size mismatch!\n");
+        exit(1);
+    }
+    
+    printf("%s : %u -> %u\n", fname, (unsigned)cSize, (unsigned)rSize);
+    
+    free(rBuff);
+    free(cBuff);
+}
+```
+
+### Related Functions
+
+- [`ZSTD_getFrameContentSize()`](/api/simple/helpers#zstd_getframecontentsize) - Get decompressed size from frame header
+- [`ZSTD_decompressDCtx()`](/api/simple/decompression#zstd_decompressdctx) - Decompress with explicit context
+- [`ZSTD_isError()`](/api/simple/helpers#zstd_iserror) - Check if return value is an error
+
+---
+
+## ZSTD_decompressDCtx()
+
+Same as `ZSTD_decompress()`, but requires an allocated `ZSTD_DCtx` decompression context. This allows reusing the context for multiple decompression operations.
+
+```c
+size_t ZSTD_decompressDCtx(ZSTD_DCtx* dctx,
+                           void* dst, size_t dstCapacity,
+                           const void* src, size_t srcSize);
+```
+
+### Parameters
+
+<ParamField path="dctx" type="ZSTD_DCtx*">
+  Pointer to a decompression context created by `ZSTD_createDCtx()`.
+</ParamField>
+
+<ParamField path="dst" type="void*">
+  Pointer to the destination buffer where decompressed data will be written.
+</ParamField>
+
+<ParamField path="dstCapacity" type="size_t">
+  Size of the destination buffer.
+</ParamField>
+
+<ParamField path="src" type="const void*">
+  Pointer to the compressed data.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of the compressed data.
+</ParamField>
+
+### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns the number of bytes decompressed into `dst` (&lt;= `dstCapacity`), or an error code if it fails.
+</ResponseField>
+
+### Important Notes
+
+- When decompressing many times, it is recommended to allocate a context only once and reuse it for each successive decompression operation
+- This will make workload friendlier for system's memory
+- Use one context per thread for parallel execution
+- Compatible with sticky parameters (advanced API)
+
+### Example
+
+```c
+#include <zstd.h>
+
+void decompress_multiple_files(int argc, const char** argv)
+{
+    // Create context once
+    ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+    if (dctx == NULL) {
+        fprintf(stderr, "ZSTD_createDCtx() failed!\n");
+        exit(1);
+    }
+    
+    for (int i = 1; i < argc; i++) {
+        size_t cSize;
+        void* const cBuff = mallocAndLoadFile(argv[i], &cSize);
+        
+        unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+        if (rSize == ZSTD_CONTENTSIZE_ERROR || rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+            fprintf(stderr, "Cannot determine size for %s\n", argv[i]);
+            free(cBuff);
+            continue;
+        }
+        
+        void* const rBuff = malloc((size_t)rSize);
+        
+        // Reuse the same context for each file
+        size_t const dSize = ZSTD_decompressDCtx(dctx, rBuff, rSize, cBuff, cSize);
+        if (ZSTD_isError(dSize)) {
+            fprintf(stderr, "Error decompressing %s: %s\n", 
+                    argv[i], ZSTD_getErrorName(dSize));
+        } else {
+            printf("%s : %u -> %u\n", argv[i], (unsigned)cSize, (unsigned)dSize);
+        }
+        
+        free(rBuff);
+        free(cBuff);
+    }
+    
+    ZSTD_freeDCtx(dctx);
+}
+```
+
+### Related Functions
+
+- [`ZSTD_createDCtx()`](/api/streaming/context-management#zstd_createdctx) - Create decompression context
+- [`ZSTD_freeDCtx()`](/api/streaming/context-management#zstd_freedctx) - Free decompression context
+- [`ZSTD_decompress()`](/api/simple/decompression#zstd_decompress) - Simple one-shot decompression
+
+---
+
+## ZSTD_decompress_usingDict()
+
+Decompression using a known dictionary. The dictionary must be identical to the one used during compression.
+
+```c
+size_t ZSTD_decompress_usingDict(ZSTD_DCtx* dctx,
+                                 void* dst, size_t dstCapacity,
+                                 const void* src, size_t srcSize,
+                                 const void* dict, size_t dictSize);
+```
+
+### Parameters
+
+<ParamField path="dctx" type="ZSTD_DCtx*">
+  Pointer to a decompression context.
+</ParamField>
+
+<ParamField path="dst" type="void*">
+  Pointer to the destination buffer where decompressed data will be written.
+</ParamField>
+
+<ParamField path="dstCapacity" type="size_t">
+  Size of the destination buffer.
+</ParamField>
+
+<ParamField path="src" type="const void*">
+  Pointer to the compressed data.
+</ParamField>
+
+<ParamField path="srcSize" type="size_t">
+  Size of the compressed data.
+</ParamField>
+
+<ParamField path="dict" type="const void*">
+  Pointer to the dictionary data. Must be identical to the one used during compression. When `dict == NULL || dictSize < 8`, no dictionary is used.
+</ParamField>
+
+<ParamField path="dictSize" type="size_t">
+  Size of the dictionary in bytes.
+</ParamField>
+
+### Return Value
+
+<ResponseField name="return" type="size_t">
+  Returns the number of bytes decompressed into `dst`, or an error code if it fails.
+</ResponseField>
+
+### Important Notes
+
+- Dictionary must be **identical** to the one used during compression
+- This function loads the dictionary, resulting in **significant startup delay**
+- It's intended for a dictionary used only once
+- When `dict == NULL || dictSize < 8`, no dictionary is used
+- For repeated use of the same dictionary, use `ZSTD_decompress_usingDDict()` instead
+
+### Example
+
+```c
+#include <zstd.h>
+
+void decompress_with_dict(const char* inputFile, const char* dictFile)
+{
+    // Load dictionary
+    size_t dictSize;
+    void* const dictBuffer = mallocAndLoadFile(dictFile, &dictSize);
+    
+    // Load compressed data
+    size_t cSize;
+    void* const cBuff = mallocAndLoadFile(inputFile, &cSize);
+    
+    // Get decompressed size
+    unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+    if (rSize == ZSTD_CONTENTSIZE_ERROR) {
+        fprintf(stderr, "Not compressed by zstd!\n");
+        exit(1);
+    }
+    if (rSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+        fprintf(stderr, "Original size unknown!\n");
+        exit(1);
+    }
+    
+    void* const rBuff = malloc((size_t)rSize);
+    
+    // Create context and decompress
+    ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+    size_t const dSize = ZSTD_decompress_usingDict(
+        dctx, rBuff, rSize, cBuff, cSize,
+        dictBuffer, dictSize
+    );
+    
+    if (ZSTD_isError(dSize)) {
+        fprintf(stderr, "Decompression error: %s\n", ZSTD_getErrorName(dSize));
+        exit(1);
+    }
+    
+    printf("Decompressed: %u -> %u\n", (unsigned)cSize, (unsigned)dSize);
+    
+    ZSTD_freeDCtx(dctx);
+    free(dictBuffer);
+    free(rBuff);
+    free(cBuff);
+}
+```
+
+### Related Functions
+
+- [`ZSTD_decompress_usingDDict()`](/api/dictionary/decompression) - Decompress using a pre-digested dictionary (more efficient for repeated use)
+- [`ZSTD_createDDict()`](/api/dictionary/decompression) - Create a digested dictionary for reuse
+- [`ZSTD_getDictID_fromFrame()`](/api/simple/helpers#zstd_getdictid_fromframe) - Get dictionary ID from compressed frame

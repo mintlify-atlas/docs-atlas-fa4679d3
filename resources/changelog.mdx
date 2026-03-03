@@ -1,0 +1,217 @@
+---
+title: Changelog
+description: Release history and version changes for Zstandard
+---
+
+This page documents the recent changes and version history for Zstandard.
+
+## v1.6.0 (Dec 2025)
+
+- **API**: Legacy format support is now disabled by default
+- **Build**: `ZSTD_LEGACY_SUPPORT` defaults to `0` in Makefile and CMake
+
+## v1.5.7 (Feb 2025)
+
+### Fixes
+- **Fix**: Compression bug in 32-bit mode associated with long-lasting sessions
+
+### API
+- **New**: Method `ZSTD_compressSequencesAndLiterals()` (#4217, #4232)
+- **Enhancement**: `ZSTD_getFrameHeader()` works on skippable frames (#4228)
+
+### Performance
+- **Perf**: Substantial compression speed improvements (up to +30%) on small data, by @TocarIP (#4144) and @cyan4973 (#4165)
+- **Perf**: Improved compression speed (~+5%) for dictionary compression at low levels (#4170)
+- **Perf**: Much faster speed for `--patch-from` at high compression levels (#4276)
+- **Perf**: Higher `--patch-from` compression ratios, notably at high levels (#4288)
+- **Perf**: Better speed for binaries on Windows (@pps83) and when compiled with Visual Studio (@MessyHack)
+- **Perf**: Slight compression ratio improvement thanks to better block boundaries (#4136, #4176, #4178)
+- **Perf**: Slight compression ratio improvement for `dfast`, aka levels 3 and 4 (#4171)
+- **Perf**: Runtime bmi2 detection enabled on x86 32-bit mode (#4251)
+
+### CLI
+- **New**: Multi-threading as default CLI setting, by @daniellerozenblit
+- **New**: `--max` command (#4290)
+
+### Build
+- **Enhancement**: Improve `msbuild` version autodetection, support VS2022, by @ManuelBlanc
+- **Fix**: `meson` build by @artem and @Victor-C-Zhang, and on Windows by @bgilbert
+- **Enhancement**: Compatibility with Apple Framework, by @Treata11
+- **Enhancement**: Improve icc/icx compatibility, by @josepho0918 and @luau-project
+- **Enhancement**: Improve compatibility with Android NDK, by Adenilson Cavalcanti
+
+### Portability
+- **Enhancement**: Linux kernel branch, with improved support for Sequence producers (@embg, @gcabiddu, @cyan4973)
+- **Enhancement**: Improved qnx compatibility, suggested by @rainbowball
+- **Enhancement**: Improved install script for FreeBSD, by @sunpoet
+- **Fix**: Test suite compatibility with gnu hurd, by @diegonc
+
+### Documentation
+- **Enhancement**: Clarify specification, by @elasota
+
+### Miscellaneous
+- **Enhancement**: Improved tests/decodecorpus validation tool (#4102), by antmicro
+
+## v1.5.6 (Mar 2024)
+
+### API
+- **Promotion**: `ZSTD_c_targetCBlockSize` to Stable API by @felixhandte
+- **New**: `ZSTD_d_maxBlockSize` experimental parameter, to reduce streaming decompression memory, by @terrelln
+
+### Performance
+- **Perf**: Improve performance of param `ZSTD_c_targetCBlockSize`, by @Cyan4973
+- **Perf**: Improved compression of arrays of integers at high compression, by @Cyan4973
+
+### Library
+- **Enhancement**: Reduce binary size with selective build-time exclusion, by @felixhandte
+- **Perf**: Improved huffman speed on small data and linux kernel, by @terrelln
+- **Enhancement**: Accept dictionaries with partial literal tables, by @terrelln
+- **Fix**: CCtx size estimation with external sequence producer, by @embg
+- **Fix**: Corner case decoder behaviors, by @Cyan4973 and @aimuz
+- **Fix**: Zdict prototype mismatch in static_only mode, by @ldv-alt
+- **Fix**: Several bugs in magicless-format decoding, by @embg
+
+### CLI
+- **New**: Add common compressed file types to `--exclude-compressed` by @daniellerozenblit
+- **Fix**: Mixing `-c` and `-o` commands with `--rm`, by @Cyan4973
+- **Fix**: Erroneous exclusion of hidden files with `--output-dir-mirror` by @felixhandte
+- **Enhancement**: Improved time accuracy on BSD, by @felixhandte
+- **Enhancement**: Better errors on argument parsing, by @KapJI
+
+### Tests
+- **Enhancement**: Better compatibility with older versions of `grep`, by @Cyan4973
+- **Enhancement**: Lorem ipsum generator as default backup content, by @Cyan4973
+
+### Build
+- **Enhancement**: CMake improvements by @terrelln, @sighingnow, @gjasny, @JohanMabille, @Saverio976, @gruenich, @teo-tsirpanis
+- **New**: Bazel support, by @jondo2010
+- **Fix**: Cross-compiling for AArch64 with lld by @jcelerier
+- **Fix**: Apple platform compatibility, by @nidhijaju
+- **Fix**: Visual 2012 and lower compatibility, by @Cyan4973
+- **Enhancement**: Improve win32 support, by @DimitriPapadopoulos
+- **Enhancement**: Better C90 compliance for zlibWrapper, by @emaste
+
+### Portability
+- **New**: Fat binaries on macos, by @mredig
+- **New**: ARM64EC compatibility for Windows, by @dunhor
+- **New**: QNX support by @klausholstjacobsen
+- **Enhancement**: MSYS2 and Cygwin makefile installation and test support, by @QBos07
+- **Enhancement**: RISC-V support validation in CI, by @Cyan4973
+- **Enhancement**: Sparc64 support validation in CI, by @Cyan4973
+- **Enhancement**: AIX compatibility, by @likema
+- **Enhancement**: HP-UX compatibility, by @likema
+
+### Documentation
+- **Enhancement**: Improved specification accuracy, by @elasota
+
+### Bug Fixes
+- **Fix**: Fix and deprecate ZSTD_generateSequences (#3981)
+
+## v1.5.5 (Apr 2023)
+
+### Fixes
+- **Fix**: Rare corruption bug affecting the high compression mode, reported by @danlark1 (#3517, @terrelln)
+
+### Performance
+- **Perf**: Improve mid-level compression speed (#3529, #3533, #3543, @yoniko and #3552, @terrelln)
+
+### Library
+- **Deprecation**: Bufferless block-level API (#3534) by @terrelln
+
+### CLI
+- **Enhancement**: Mmap large dictionaries to save memory, by @daniellerozenblit
+- **Perf**: Improve speed of --patch-from mode (~+50%) (#3545) by @daniellerozenblit
+- **Perf**: Improve i/o speed (~+10%) when processing lots of small files (#3479) by @felixhandte
+- **Fix**: Zstd no longer crashes when requested to write into write-protected directory (#3541) by @felixhandte
+- **Fix**: Decompression into block device using -o, reported by @georgmu (#3583)
+
+### Build
+- **Fix**: Zstd CLI compiled with lzma support but not zlib support (#3494) by @Hello71
+- **Fix**: CMake does no longer require 3.18 as minimum version (#3510) by @kou
+- **Fix**: MSVC+ClangCL linking issue (#3569) by @tru
+- **Fix**: zstd-dll, version of zstd CLI that links to the dynamic library (#3496) by @yoniko
+- **Fix**: MSVC warnings (#3495) by @embg
+
+### Documentation
+- **Enhancement**: Updated zstd specification to clarify corner cases, by @Cyan4973
+- **Enhancement**: Document how to create fat binaries for macos (#3568) by @rickmark
+
+### Miscellaneous
+- **Perf**: Improve seekable format ingestion speed (~+100%) for very small chunk sizes (#3544) by @Cyan4973
+- **Enhancement**: tests/fullbench can benchmark multiple files (#3516) by @dloidolt
+
+## v1.5.4 (Feb 2023)
+
+### Performance
+- **Perf**: +20% faster huffman decompression for targets that can't compile x64 assembly (#3449, @terrelln)
+- **Perf**: Up to +10% faster streaming compression at levels 1-2 (#3114, @embg)
+- **Perf**: +4-13% for levels 5-12 by optimizing function generation (#3295, @terrelln)
+- **Perf**: +3-11% compression speed for `arm` target (#3199, #3164, #3145, #3141, #3138, @JunHe77 and #3139, #3160, @danlark1)
+- **Perf**: +5-30% faster dictionary compression at levels 1-4 (#3086, #3114, #3152, @embg)
+- **Perf**: +10-20% cold dict compression speed by prefetching CDict tables (#3177, @embg)
+- **Perf**: +1% faster compression by removing a branch in ZSTD_fast_noDict (#3129, @felixhandte)
+- **Perf**: Small compression ratio improvements in high compression mode (#2983, #3391, @Cyan4973 and #3285, #3302, @daniellerozenblit)
+- **Perf**: Small speed improvement by better detecting `STATIC_BMI2` for `clang` (#3080, @TocarIP)
+- **Perf**: Improved streaming performance when `ZSTD_c_stableInBuffer` is set (#2974, @Cyan4973)
+
+### CLI
+- **New**: Asynchronous I/O for improved cli speed (#2975, #2985, #3021, #3022, @yoniko)
+- **Change**: `zstdless` behavior to align with `zless` (#2909, @binhdvo)
+- **Enhancement**: Keep original file if `-c` or `--stdout` is given (#3052, @dirkmueller)
+- **Enhancement**: Keep original files when result is concatenated into a single output with `-o` (#3450, @Cyan4973)
+- **Enhancement**: Preserve Permissions and Ownership of regular files (#3432, @felixhandte)
+- **Enhancement**: Print zlib/lz4/lzma library versions with `-vv` (#3030, @terrelln)
+- **Enhancement**: Print checksum value for single frame files with `-lv` (#3332, @Cyan4973)
+- **Enhancement**: Print `dictID` when present with `-lv` (#3184, @htnhan)
+- **Enhancement**: When `stderr` is *not* the console, disable status updates, but preserve final summary (#3458, @Cyan4973)
+- **Enhancement**: Support `--best` and `--no-name` in `gzip` compatibility mode (#3059, @dirkmueller)
+- **Enhancement**: Support for `posix` high resolution timer `clock_gettime()`, for improved benchmark accuracy (#3423, @Cyan4973)
+- **Enhancement**: Improved help/usage (`-h`, `-H`) formatting (#3094, @dirkmueller and #3385, @jonpalmisc)
+- **Fix**: Better handling of bogus numeric values (#3268, @ctkhanhly)
+- **Fix**: Input consists of multiple files _and_ `stdin` (#3222, @yoniko)
+- **Fix**: Tiny files passthrough (#3215, @cgbur)
+- **Fix**: `-r` on empty directory (#3027, @brailovich)
+- **Fix**: Empty string as argument for `--output-dir-*` (#3220, @embg)
+- **Fix**: Decompression memory usage reported by `-vv --long` (#3042, @u1f35c, and #3232, @zengyijing)
+- **Fix**: Infinite loop when empty input is passed to trainer (#3081, @terrelln)
+- **Fix**: `--adapt` doesn't work when `--no-progress` is also set (#3354, @terrelln)
+
+### API
+- **New**: Support for Block-Level Sequence Producer (#3333, @embg)
+- **New**: Support for in-place decompression (#3432, @terrelln)
+- **New**: `ZSTD_CCtx_setCParams()` function, set all parameters defined in a `ZSTD_compressionParameters` structure (#3403, @Cyan4973)
+- **Enhancement**: Streaming decompression detects incorrect header ID sooner (#3175, @Cyan4973)
+- **Enhancement**: Window size resizing optimization for edge case (#3345, @daniellerozenblit)
+- **Enhancement**: More accurate error codes for busy-loop scenarios (#3413, #3455, @Cyan4973)
+- **Fix**: Limit overflow in `compressBound` and `decompressBound` (#3362, #3373, Cyan4973) reported by @nigeltao
+- **Deprecation**: Several advanced experimental functions: streaming (#3408, @embg), copy (#3196, @mileshu)
+
+### Bug Fixes
+- **Fix**: Corruption that rarely occurs in 32-bit mode with wlog=25 (#3361, @terrelln)
+- **Fix**: Block-splitter (#3033, @Cyan4973)
+- **Fix**: Sequence Compression API (#3023, #3040, @Cyan4973)
+- **Fix**: Leaking thread handles on Windows (#3147, @animalize)
+- **Fix**: Timing issues with cmake/meson builds (#3166, #3167, #3170, @Cyan4973)
+
+### Build
+- **Enhancement**: Allow user to select legacy level for cmake (#3050, @shadchin)
+- **Enhancement**: Enable legacy support by default in cmake (#3079, @niamster)
+- **Enhancement**: Meson build script improvements (#3039, #3120, #3122, #3327, #3357, @eli-schwartz and #3276, @neheb)
+- **Enhancement**: Add aarch64 to supported architectures for zstd_trace (#3054, @ooosssososos)
+- **Enhancement**: Support AIX architecture (#3219, @qiongsiwu)
+- **Fix**: `ZSTD_LIB_MINIFY` build macro, which now reduces static library size by half (#3366, @terrelln)
+- **Fix**: Windows issues with Multithreading translation layer (#3364, #3380, @yoniko) and ARM64 target (#3320, @cwoffenden)
+- **Fix**: `cmake` script (#3382, #3392, @terrelln and #3252 @Tachi107 and #3167 @Cyan4973)
+
+### Documentation
+- **Enhancement**: Updated man page, providing more details for `--train` mode (#3112, @Cyan4973)
+- **New**: Decompressor errata document (#3092, @terrelln)
+
+### Miscellaneous
+- **Enhancement**: Enable Intel CET (#2992, #2994, @hjl-tools)
+- **Fix**: `contrib/` seekable format (#3058, @yhoogstrate and #3346, @daniellerozenblit)
+- **Enhancement**: Improve speed of the one-file library generator (#3241, @wahern and #3005, @cwoffenden)
+
+## Older Versions
+
+For a complete history of all versions, please see the [CHANGELOG](https://github.com/facebook/zstd/blob/dev/CHANGELOG) file in the repository.

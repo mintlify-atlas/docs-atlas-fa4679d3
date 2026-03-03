@@ -1,0 +1,133 @@
+---
+title: Introduction to Zstandard
+description: Fast lossless compression algorithm targeting real-time compression scenarios at zlib-level and better compression ratios
+---
+
+# Introduction to Zstandard
+
+Zstandard, or `zstd` as short version, is a fast lossless compression algorithm, targeting real-time compression scenarios at zlib-level and better compression ratios. It's backed by a very fast entropy stage, provided by [Huff0 and FSE library](https://github.com/Cyan4973/FiniteStateEntropy).
+
+<Note>
+Zstandard's format is stable and documented in [RFC8878](https://datatracker.ietf.org/doc/html/rfc8878). Multiple independent implementations are already available.
+</Note>
+
+## Why Zstandard?
+
+<CardGroup cols={2}>
+  <Card title="Blazing fast performance" icon="gauge-high" href="#benchmark-highlights">
+    Compression speeds up to 510 MB/s and decompression up to 1550 MB/s at default settings
+  </Card>
+  
+  <Card title="Excellent compression ratios" icon="minimize" href="#benchmark-highlights">
+    Achieves better compression ratios than zlib while being significantly faster
+  </Card>
+  
+  <Card title="Flexible compression levels" icon="sliders" href="#compression-levels">
+    Supports levels from -131072 (ultra-fast) to 22 (maximum compression)
+  </Card>
+  
+  <Card title="Dictionary compression" icon="book" href="#dictionary-compression">
+    Dramatically improves compression for small data using trained dictionaries
+  </Card>
+</CardGroup>
+
+## Benchmark highlights
+
+For reference, several fast compression algorithms were tested and compared on a desktop featuring a Core i7-9700K CPU @ 4.9GHz running Ubuntu 24.04, using lzbench on the Silesia compression corpus:
+
+| Compressor name         | Ratio | Compression| Decompress.|
+| ----------------------- | ----- | ---------- | ---------- |
+| **zstd 1.5.7 -1**       | 2.896 | 510 MB/s   | 1550 MB/s  |
+| brotli 1.1.0 -1         | 2.883 | 290 MB/s   | 425 MB/s   |
+| zlib 1.3.1 -1           | 2.743 | 105 MB/s   | 390 MB/s   |
+| **zstd 1.5.7 --fast=1** | 2.439 | 545 MB/s   | 1850 MB/s  |
+| **zstd 1.5.7 --fast=4** | 2.146 | 665 MB/s   | 2050 MB/s  |
+| lz4 1.10.0              | 2.101 | 675 MB/s   | 3850 MB/s  |
+| snappy 1.2.1            | 2.089 | 520 MB/s   | 1500 MB/s  |
+
+<Tip>
+Zstandard offers the best balance of compression ratio and speed, outperforming zlib in both metrics.
+</Tip>
+
+## Compression levels
+
+The library supports regular compression levels from 1 up to 22. Levels >= 20, labeled `--ultra`, should be used with caution as they require more memory. The library also offers negative compression levels, which extend the range of speed vs. ratio preferences.
+
+- **Negative levels** (`--fast=#`): Faster compression and decompression at the cost of compression ratio
+- **Levels 1-19**: Balanced compression ratio and speed
+- **Levels 20-22** (`--ultra`): Maximum compression ratio, requires more memory
+
+Decompression speed is preserved and remains roughly the same at all settings, a property shared by most LZ compression algorithms.
+
+## Dictionary compression
+
+The smaller the amount of data to compress, the more difficult it is to compress. Zstandard offers a training mode which can be used to tune the algorithm for a selected type of data.
+
+Using a dictionary, the compression ratio achievable on small data improves dramatically:
+
+<Steps>
+  <Step title="Create the dictionary">
+    Train on sample data representative of your use case:
+    ```bash
+    zstd --train FullPathToTrainingSet/* -o dictionaryName
+    ```
+  </Step>
+  
+  <Step title="Compress with dictionary">
+    ```bash
+    zstd -D dictionaryName FILE
+    ```
+  </Step>
+  
+  <Step title="Decompress with dictionary">
+    ```bash
+    zstd -D dictionaryName --decompress FILE.zst
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The more data-specific a dictionary is, the more efficient it is. There is no universal dictionary.
+</Note>
+
+## Quick example
+
+Here's a simple example of compressing and decompressing data using the Zstandard C API:
+
+```c
+#include <zstd.h>
+
+// Compression
+size_t const cBuffSize = ZSTD_compressBound(fSize);
+void* const cBuff = malloc(cBuffSize);
+size_t const cSize = ZSTD_compress(cBuff, cBuffSize, fBuff, fSize, 1);
+
+// Decompression
+unsigned long long const rSize = ZSTD_getFrameContentSize(cBuff, cSize);
+void* const rBuff = malloc((size_t)rSize);
+size_t const dSize = ZSTD_decompress(rBuff, rSize, cBuff, cSize);
+```
+
+## What's included
+
+This reference implementation is provided as an open-source dual BSD OR GPLv2 licensed C library, and includes:
+
+- **C library** (`libzstd`): In-memory compression and decompression functions
+- **Command line utility**: Producing and decoding `.zst`, `.gz`, `.xz` and `.lz4` files
+- **Language bindings**: Ports available for many programming languages on the [Zstandard homepage](https://facebook.github.io/zstd/#other-languages)
+
+## Deployment at scale
+
+Zstandard is deployed within Meta and many other large cloud infrastructures to compress humongous amounts of data in various formats and use cases. It is continuously fuzzed for security issues by Google's oss-fuzz program.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Zstandard using your preferred package manager or build from source
+  </Card>
+  
+  <Card title="Quick start guide" icon="rocket" href="/quickstart">
+    Get up and running with a working compression example in minutes
+  </Card>
+</CardGroup>

@@ -1,0 +1,356 @@
+---
+title: Error Handling
+description: Detect and handle errors using ZSTD_isError(), ZSTD_getErrorName(), and error codes
+---
+
+Most Zstandard functions return a `size_t` value that can represent either a successful result or an error code. The error handling API provides functions to detect and interpret these errors.
+
+## Error Detection
+
+### ZSTD_isError()
+
+Test if a function result indicates an error.
+
+```c
+unsigned ZSTD_isError(size_t result);
+```
+
+**Parameters:**
+- `result` - Return value from a Zstandard function
+
+**Returns:**
+- `1` if error
+- `0` if success
+
+**Example:**
+
+```c
+size_t cSize = ZSTD_compress(dst, dstCapacity, src, srcSize, 5);
+if (ZSTD_isError(cSize)) {
+    fprintf(stderr, "Compression failed\n");
+    return -1;
+}
+printf("Compressed size: %zu\n", cSize);
+```
+
+### ZSTD_getErrorName()
+
+Get readable error message from a function result.
+
+```c
+const char* ZSTD_getErrorName(size_t result);
+```
+
+**Parameters:**
+- `result` - Return value from a Zstandard function
+
+**Returns:** Human-readable error string
+
+**Example:**
+
+```c
+size_t result = ZSTD_compress(dst, dstCapacity, src, srcSize, 5);
+if (ZSTD_isError(result)) {
+    fprintf(stderr, "Error: %s\n", ZSTD_getErrorName(result));
+    return -1;
+}
+```
+
+### ZSTD_getErrorCode()
+
+Convert a function result into an error code enum value.
+
+```c
+ZSTD_ErrorCode ZSTD_getErrorCode(size_t functionResult);
+```
+
+**Parameters:**
+- `functionResult` - Return value from a Zstandard function
+
+**Returns:** `ZSTD_ErrorCode` enum value that can be compared against error codes
+
+**Example:**
+
+```c
+size_t result = ZSTD_decompress(dst, dstCapacity, src, srcSize);
+if (ZSTD_isError(result)) {
+    ZSTD_ErrorCode code = ZSTD_getErrorCode(result);
+    if (code == ZSTD_error_corruption_detected) {
+        fprintf(stderr, "Data is corrupted!\n");
+    }
+}
+```
+
+## Error Codes
+
+The `ZSTD_ErrorCode` enum defines all possible error conditions. Error code values are pinned down since v1.3.1.
+
+### Stable Error Codes (< 100)
+
+These error codes are stable and safe to rely on:
+
+#### General Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_no_error` | 0 | No error |
+| `ZSTD_error_GENERIC` | 1 | Generic error |
+
+#### Format Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_prefix_unknown` | 10 | Unknown frame prefix |
+| `ZSTD_error_version_unsupported` | 12 | Unsupported version |
+| `ZSTD_error_frameParameter_unsupported` | 14 | Unsupported frame parameter |
+| `ZSTD_error_frameParameter_windowTooLarge` | 16 | Window size too large |
+
+#### Data Integrity Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_corruption_detected` | 20 | Data corruption detected |
+| `ZSTD_error_checksum_wrong` | 22 | Checksum verification failed |
+| `ZSTD_error_literals_headerWrong` | 24 | Literals header is wrong |
+
+#### Dictionary Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_dictionary_corrupted` | 30 | Dictionary is corrupted |
+| `ZSTD_error_dictionary_wrong` | 32 | Wrong dictionary used |
+| `ZSTD_error_dictionaryCreation_failed` | 34 | Dictionary creation failed |
+
+#### Parameter Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_parameter_unsupported` | 40 | Parameter not supported |
+| `ZSTD_error_parameter_combination_unsupported` | 41 | Parameter combination not supported |
+| `ZSTD_error_parameter_outOfBound` | 42 | Parameter value out of bounds |
+| `ZSTD_error_tableLog_tooLarge` | 44 | Table log too large |
+| `ZSTD_error_maxSymbolValue_tooLarge` | 46 | Max symbol value too large |
+| `ZSTD_error_maxSymbolValue_tooSmall` | 48 | Max symbol value too small |
+| `ZSTD_error_cannotProduce_uncompressedBlock` | 49 | Cannot produce uncompressed block |
+| `ZSTD_error_stabilityCondition_notRespected` | 50 | Stability condition not respected |
+
+#### State Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_stage_wrong` | 60 | Wrong stage for this operation |
+| `ZSTD_error_init_missing` | 62 | Initialization missing |
+| `ZSTD_error_memory_allocation` | 64 | Memory allocation failed |
+| `ZSTD_error_workSpace_tooSmall` | 66 | Workspace too small |
+
+#### Size Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_dstSize_tooSmall` | 70 | Destination buffer too small |
+| `ZSTD_error_srcSize_wrong` | 72 | Source size is wrong |
+| `ZSTD_error_dstBuffer_null` | 74 | Destination buffer is NULL |
+
+#### Progress Errors
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_noForwardProgress_destFull` | 80 | No forward progress (destination full) |
+| `ZSTD_error_noForwardProgress_inputEmpty` | 82 | No forward progress (input empty) |
+
+### Experimental Error Codes (≥ 100)
+
+These error codes are not stable and may change in future versions:
+
+| Code | Value | Description |
+|------|-------|-------------|
+| `ZSTD_error_frameIndex_tooLarge` | 100 | Frame index too large |
+| `ZSTD_error_seekableIO` | 102 | Seekable I/O error |
+| `ZSTD_error_dstBuffer_wrong` | 104 | Destination buffer wrong |
+| `ZSTD_error_srcBuffer_wrong` | 105 | Source buffer wrong |
+| `ZSTD_error_sequenceProducer_failed` | 106 | Sequence producer failed |
+| `ZSTD_error_externalSequences_invalid` | 107 | External sequences invalid |
+| `ZSTD_error_maxCode` | 120 | Never use directly - marks end of enum |
+
+**Note:** Never use `ZSTD_error_maxCode` directly as it can change. Always use `ZSTD_isError()` instead.
+
+## Error Handling Patterns
+
+### Basic Error Checking
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+
+void compress_data(const void* src, size_t srcSize,
+                   void* dst, size_t dstCapacity) {
+    size_t cSize = ZSTD_compress(dst, dstCapacity, src, srcSize, 3);
+    
+    if (ZSTD_isError(cSize)) {
+        fprintf(stderr, "Compression error: %s\n", 
+                ZSTD_getErrorName(cSize));
+        return;
+    }
+    
+    printf("Compressed %zu bytes to %zu bytes\n", srcSize, cSize);
+}
+```
+
+### Checking Specific Error Codes
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+
+int decompress_data(const void* src, size_t srcSize,
+                    void* dst, size_t dstCapacity) {
+    size_t dSize = ZSTD_decompress(dst, dstCapacity, src, srcSize);
+    
+    if (ZSTD_isError(dSize)) {
+        ZSTD_ErrorCode errCode = ZSTD_getErrorCode(dSize);
+        
+        switch (errCode) {
+            case ZSTD_error_corruption_detected:
+                fprintf(stderr, "Data corruption detected\n");
+                return -1;
+            
+            case ZSTD_error_checksum_wrong:
+                fprintf(stderr, "Checksum mismatch\n");
+                return -2;
+            
+            case ZSTD_error_dstSize_tooSmall:
+                fprintf(stderr, "Output buffer too small\n");
+                return -3;
+            
+            default:
+                fprintf(stderr, "Decompression error: %s\n",
+                        ZSTD_getErrorName(dSize));
+                return -4;
+        }
+    }
+    
+    return dSize;
+}
+```
+
+### Streaming Error Handling
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+
+int compress_streaming(FILE* fin, FILE* fout) {
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    if (!cctx) {
+        fprintf(stderr, "Failed to create compression context\n");
+        return -1;
+    }
+    
+    size_t const buffInSize = ZSTD_CStreamInSize();
+    size_t const buffOutSize = ZSTD_CStreamOutSize();
+    void* buffIn = malloc(buffInSize);
+    void* buffOut = malloc(buffOutSize);
+    
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 5);
+    
+    size_t toRead = buffInSize;
+    while (1) {
+        size_t read = fread(buffIn, 1, toRead, fin);
+        int lastChunk = (read < toRead);
+        
+        ZSTD_inBuffer input = { buffIn, read, 0 };
+        int finished;
+        do {
+            ZSTD_outBuffer output = { buffOut, buffOutSize, 0 };
+            size_t remaining = ZSTD_compressStream2(
+                cctx, &output, &input,
+                lastChunk ? ZSTD_e_end : ZSTD_e_continue
+            );
+            
+            if (ZSTD_isError(remaining)) {
+                fprintf(stderr, "Compression error: %s\n",
+                        ZSTD_getErrorName(remaining));
+                goto cleanup_error;
+            }
+            
+            fwrite(buffOut, 1, output.pos, fout);
+            finished = lastChunk ? (remaining == 0) : (input.pos == input.size);
+        } while (!finished);
+        
+        if (lastChunk) break;
+    }
+    
+    free(buffIn);
+    free(buffOut);
+    ZSTD_freeCCtx(cctx);
+    return 0;
+    
+cleanup_error:
+    free(buffIn);
+    free(buffOut);
+    ZSTD_freeCCtx(cctx);
+    return -1;
+}
+```
+
+### Advanced Error Context
+
+```c
+#include <zstd.h>
+#include <stdio.h>
+
+typedef struct {
+    ZSTD_ErrorCode code;
+    const char* message;
+    const char* context;
+} ErrorInfo;
+
+ErrorInfo get_detailed_error(size_t result, const char* context) {
+    ErrorInfo info;
+    info.code = ZSTD_getErrorCode(result);
+    info.message = ZSTD_getErrorName(result);
+    info.context = context;
+    return info;
+}
+
+void log_error(ErrorInfo info) {
+    fprintf(stderr, "[%s] Error %d: %s\n",
+            info.context, info.code, info.message);
+}
+
+int process_frame(const void* data, size_t size) {
+    size_t result = ZSTD_getFrameContentSize(data, size);
+    
+    if (ZSTD_isError(result)) {
+        ErrorInfo err = get_detailed_error(result, "getFrameContentSize");
+        log_error(err);
+        return -1;
+    }
+    
+    if (result == ZSTD_CONTENTSIZE_UNKNOWN) {
+        printf("Content size unknown\n");
+    } else if (result == ZSTD_CONTENTSIZE_ERROR) {
+        fprintf(stderr, "Invalid frame\n");
+        return -1;
+    } else {
+        printf("Content size: %llu bytes\n", result);
+    }
+    
+    return 0;
+}
+```
+
+## Best Practices
+
+1. **Always check for errors** - Most Zstandard functions can fail
+2. **Use ZSTD_isError()** - Never compare result values directly
+3. **Log error messages** - Use `ZSTD_getErrorName()` for debugging
+4. **Handle common errors** - Check for buffer size, corruption, and memory errors
+5. **Clean up on error** - Free allocated resources even when errors occur
+6. **Use error codes for logic** - Compare against `ZSTD_ErrorCode` enum for specific handling
+7. **Don't rely on experimental codes** - Only values < 100 are stable
+
+## See Also
+
+- [Compression Parameters](/api/advanced/parameters) - Setting compression options
+- [Memory Management](/api/advanced/memory-management) - Buffer sizing and allocation

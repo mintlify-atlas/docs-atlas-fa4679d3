@@ -1,0 +1,352 @@
+---
+title: Advanced Compression Parameters
+description: Fine-tune compression with advanced parameters for optimal performance and ratio
+---
+
+Zstandard provides extensive control over compression behavior through advanced parameters. These allow you to optimize for specific use cases, hardware constraints, or performance requirements.
+
+## Setting Parameters
+
+Use `ZSTD_CCtx_setParameter()` to configure compression parameters:
+
+```c
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+// Set compression level
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 5);
+
+// Set window size
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 20);
+
+// Set compression strategy
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btopt);
+
+// Compress using these parameters
+ZSTD_compress2(cctx, dst, dstSize, src, srcSize);
+```
+
+Parameters persist across compression operations until reset or changed.
+
+## Compression Level
+
+The compression level is the primary control for the compression ratio vs. speed tradeoff.
+
+```c
+// ZSTD_c_compressionLevel
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, level);
+```
+
+- **Range**: Negative values to 22
+- **Default**: 3 (`ZSTD_CLEVEL_DEFAULT`)
+- **Special**: 0 means "use default"
+
+<CodeGroup>
+```c Fast compression (level 1)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+// Fast but lower ratio
+```
+
+```c Balanced (level 3)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 3);
+// Default - good balance
+```
+
+```c High compression (level 19)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
+// Better ratio, slower
+```
+
+```c Ultra compression (level 22)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 22);
+// Maximum ratio, requires more memory
+```
+</CodeGroup>
+
+Setting the compression level automatically adjusts other parameters dynamically. Manually set parameters "stick" and override level-based defaults.
+
+## Window Size
+
+The window size controls the maximum back-reference distance for finding matches.
+
+```c
+// ZSTD_c_windowLog (power of 2)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 20);  // 1 MB window
+```
+
+- **Power of 2**: windowLog=20 means window size = 2^20 = 1 MB
+- **Range**: `ZSTD_WINDOWLOG_MIN` to `ZSTD_WINDOWLOG_MAX`
+- **Default**: 0 (automatic based on source size)
+- **Impact**: Larger windows improve compression but use more memory
+
+```c
+// Examples
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 17);  // 128 KB
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 20);  // 1 MB
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 23);  // 8 MB
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 27);  // 128 MB
+```
+
+Larger window sizes require more memory during decompression. Windows >= 128 MB require explicit acknowledgment at decompression time.
+
+## Compression Strategies
+
+Strategies control the algorithm used to find matches.
+
+```c
+// ZSTD_c_strategy
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btopt);
+```
+
+Available strategies (in order of complexity):
+
+```c
+typedef enum {
+    ZSTD_fast=1,      // Fastest
+    ZSTD_dfast=2,     // Fast with better ratio
+    ZSTD_greedy=3,    // Greedy matching
+    ZSTD_lazy=4,      // Lazy matching
+    ZSTD_lazy2=5,     // Lazy matching with more effort
+    ZSTD_btlazy2=6,   // Binary tree lazy
+    ZSTD_btopt=7,     // Binary tree optimal (level 16+)
+    ZSTD_btultra=8,   // Binary tree ultra
+    ZSTD_btultra2=9   // Binary tree ultra 2 (strongest)
+} ZSTD_strategy;
+```
+
+<Steps>
+  <Step title="Fast strategies (fast, dfast)">
+    Best for speed-critical applications:
+
+    ```c
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_fast);
+    ```
+
+    - Minimal CPU usage
+    - Lower compression ratios
+    - Good for real-time compression
+  </Step>
+
+  <Step title="Lazy strategies (greedy, lazy, lazy2)">
+    Balanced performance:
+
+    ```c
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_lazy);
+    ```
+
+    - Moderate CPU usage
+    - Good compression ratios
+    - Default for mid-range levels
+  </Step>
+
+  <Step title="Binary tree strategies (btopt, btultra, btultra2)">
+    Maximum compression:
+
+    ```c
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btultra2);
+    ```
+
+    - High CPU usage
+    - Best compression ratios
+    - Used automatically at level 16+
+  </Step>
+</Steps>
+
+## Hash and Chain Tables
+
+These parameters control internal data structures for match finding.
+
+### Hash Log
+
+```c
+// ZSTD_c_hashLog (power of 2)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_hashLog, 18);
+```
+
+- **Size**: Hash table size = 2^hashLog entries
+- **Memory**: (1 &lt;&lt; (hashLog+2)) bytes
+- **Impact**: Larger tables improve ratio for fast/dfast strategies
+- **Range**: `ZSTD_HASHLOG_MIN` to `ZSTD_HASHLOG_MAX`
+
+### Chain Log
+
+```c
+// ZSTD_c_chainLog (power of 2)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_chainLog, 17);
+```
+
+- **Size**: Chain table size = 2^chainLog entries
+- **Memory**: (1 &lt;&lt; (chainLog+2)) bytes
+- **Impact**: Larger tables improve ratio but slow compression
+- **Note**: Useless for "fast" strategy, useful for "dfast" as secondary probe table
+
+### Search Log
+
+```c
+// ZSTD_c_searchLog (power of 2)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_searchLog, 7);
+```
+
+- **Attempts**: Number of search attempts = 2^searchLog
+- **Impact**: More attempts = better ratio, slower compression
+- **Note**: Useless for "fast" and "dfast" strategies
+
+## Match Parameters
+
+### Minimum Match Length
+
+```c
+// ZSTD_c_minMatch
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_minMatch, 4);
+```
+
+- **Range**: `ZSTD_MINMATCH_MIN` (3) to `ZSTD_MINMATCH_MAX` (7)
+- **Default**: Depends on strategy (typically 4-6)
+- **Impact**: Larger values increase speed but may decrease ratio
+
+### Target Length
+
+```c
+// ZSTD_c_targetLength
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_targetLength, 128);
+```
+
+Behavior depends on strategy:
+
+- **btopt/btultra/btultra2**: Length considered "good enough" to stop search
+  - Larger values = stronger/slower compression
+- **fast**: Distance between match sampling
+  - Larger values = faster/weaker compression
+
+## Long Distance Matching (LDM)
+
+LDM improves compression for large files with repeated patterns far apart.
+
+```c
+// Enable long distance matching
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+
+// LDM hash log (default: windowLog - 7)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmHashLog, 20);
+
+// LDM minimum match size (default: 64)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmMinMatch, 64);
+
+// LDM bucket size log (default: 3)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmBucketSizeLog, 3);
+
+// LDM hash rate log
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmHashRateLog, 0);  // Auto
+```
+
+<CodeGroup>
+```c Automatic LDM
+// Enabled automatically for:
+// - windowLog >= 128 MB
+// - strategy >= ZSTD_btopt (level 16+)
+```
+
+```c Manual LDM
+// Manually enable for large files
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 27);  // 128 MB
+```
+</CodeGroup>
+
+LDM increases memory usage and is most effective for files with repetitive content at large distances.
+
+## Frame Parameters
+
+### Content Size Flag
+
+```c
+// Write content size to frame header (default: 1)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_contentSizeFlag, 1);
+```
+
+When enabled, the decompressed size is written to the frame header (when known).
+
+### Checksum Flag
+
+```c
+// Add 32-bit checksum at end of frame (default: 0)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+```
+
+Enables data integrity verification at decompression.
+
+### Dictionary ID Flag
+
+```c
+// Write dictionary ID to frame header (default: 1)
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_dictIDFlag, 1);
+```
+
+Writes the dictionary ID when using dictionary compression.
+
+## Example: Custom Configuration
+
+Here's an example of fine-tuning compression for a specific use case:
+
+```c
+// Configure for maximum ratio on large text files
+ZSTD_CCtx* cctx = ZSTD_createCCtx();
+
+// Base compression level
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
+
+// Large window for better back-references
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 27);  // 128 MB
+
+// Use optimal parsing strategy
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btultra2);
+
+// Enable long distance matching
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmHashLog, 20);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_ldmMinMatch, 128);
+
+// Add checksum for integrity
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+// Compress
+size_t result = ZSTD_compress2(cctx, dst, dstSize, src, srcSize);
+CHECK_ZSTD(result);
+
+ZSTD_freeCCtx(cctx);
+```
+
+## Parameter Persistence
+
+Parameters remain active until explicitly changed or reset:
+
+```c
+// Set parameters
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 10);
+ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+// First compression uses level 10 + checksum
+ZSTD_compress2(cctx, dst1, dstSize1, src1, srcSize1);
+
+// Second compression still uses level 10 + checksum
+ZSTD_compress2(cctx, dst2, dstSize2, src2, srcSize2);
+
+// Reset to defaults
+ZSTD_CCtx_reset(cctx, ZSTD_reset_parameters);
+
+// Now uses default parameters
+ZSTD_compress2(cctx, dst3, dstSize3, src3, srcSize3);
+```
+
+## Querying Parameters
+
+Get information about supported parameter ranges:
+
+```c
+// Get minimum/maximum compression levels
+int minLevel = ZSTD_minCLevel();  // Minimum (typically negative)
+int maxLevel = ZSTD_maxCLevel();  // Maximum (typically 22)
+int defaultLevel = ZSTD_defaultCLevel();  // Default (3)
+
+printf("Compression levels: %d to %d (default: %d)\n", 
+       minLevel, maxLevel, defaultLevel);
+```

@@ -1,0 +1,184 @@
+---
+title: CLI Overview
+description: Command-line interface overview and basic usage for zstd compression tool
+---
+
+`zstd` is a fast lossless compression algorithm and data compression tool, with command line syntax similar to `gzip` and `xz`. It is based on the LZ77 family, with further FSE & huff0 entropy stages.
+
+## Key Features
+
+- **Fast compression**: > 200 MB/s per core in fast modes
+- **Strong compression**: Excellent compression ratios with configurable levels
+- **Fast decompression**: > 500 MB/s per core across all compression settings
+- **Dictionary compression**: Dramatically improves compression on small files
+- **Multi-threading support**: Parallel compression with `-T#` option
+
+## Basic Usage
+
+```bash
+zstd [OPTIONS...] [INPUT... | -] [-o OUTPUT]
+```
+
+### Compress a file
+
+```bash
+# Compress with default level (3)
+zstd file.txt
+# Output: file.txt.zst
+
+# Compress with specific level (1-19)
+zstd -5 file.txt
+
+# Compress with maximum compression
+zstd -19 file.txt
+```
+
+### Decompress a file
+
+```bash
+# Decompress
+zstd -d file.txt.zst
+# Output: file.txt
+
+# Alternative syntax
+unzstd file.txt.zst
+```
+
+### Write to standard output
+
+```bash
+# Decompress to stdout
+zstd -dc file.txt.zst
+
+# Alternative
+zstdcat file.txt.zst
+```
+
+## Common Options
+
+| Option | Description |
+|--------|-------------|
+| `-#` | Compression level (1-19, default: 3) |
+| `-d, --decompress` | Decompress files |
+| `-o OUTPUT` | Write output to OUTPUT file |
+| `-k, --keep` | Keep input files (default) |
+| `--rm` | Remove input files after processing |
+| `-f, --force` | Overwrite existing files |
+| `-c, --stdout` | Write to stdout |
+| `-v, --verbose` | Verbose mode |
+| `-q, --quiet` | Suppress warnings |
+| `-h, --help` | Display help |
+
+## Differences from gzip
+
+<Note>
+`zstd` has several behavioral differences from `gzip`:
+
+- Source files are **preserved by default** (use `--rm` to remove)
+- Progress notifications are shown by default (use `-q` to disable)
+- Does not accept input from console (but accepts stdin when piped)
+- Does not store filename or attributes, only file contents
+</Note>
+
+## File Handling
+
+### Reading from stdin
+
+```bash
+# Compress from stdin
+cat file.txt | zstd > file.txt.zst
+
+# Using dash for stdin
+zstd - < file.txt > file.txt.zst
+```
+
+### Recursive compression
+
+```bash
+# Compress all files in directory
+zstd -r directory/
+
+# With specific compression level
+zstd -r -10 directory/
+```
+
+### Output directory options
+
+```bash
+# Store files in flat directory
+zstd -r --output-dir-flat /output/dir input/
+
+# Preserve directory structure
+zstd -r --output-dir-mirror /output/dir input/
+```
+
+## Symlink Shortcuts
+
+`zstd` can be invoked through symlinks with special behavior:
+
+| Symlink | Behavior |
+|---------|----------|
+| `zstdmt` | Compress using all CPU cores (`zstd -T0`) |
+| `unzstd` | Decompress files |
+| `zstdcat` | Decompress to stdout |
+| `zcat` | Same as `zstdcat` |
+
+## Environment Variables
+
+<Warning>
+Only `ZSTD_CLEVEL` and `ZSTD_NBTHREADS` are supported for security reasons.
+</Warning>
+
+### ZSTD_CLEVEL
+
+Set default compression level (1-19):
+
+```bash
+export ZSTD_CLEVEL=5
+zstd file.txt  # Uses level 5
+```
+
+### ZSTD_NBTHREADS
+
+Set default number of threads:
+
+```bash
+export ZSTD_NBTHREADS=4
+zstd file.txt  # Uses 4 threads
+```
+
+These can be overridden by command-line arguments (`-#` and `-T#`).
+
+## Concatenation
+
+Multiple `.zst` files can be concatenated and decompressed as a single file:
+
+```bash
+cat file1.zst file2.zst file3.zst > combined.zst
+zstd -d combined.zst
+```
+
+## Integer Suffixes
+
+Many options accept integer suffixes for convenience:
+
+```bash
+# These are equivalent
+zstd -B 1048576 file.txt
+zstd -B 1MiB file.txt
+zstd -B 1MB file.txt
+```
+
+Supported suffixes:
+- `KiB`, `Ki`, `K`, `KB` = × 1,024
+- `MiB`, `Mi`, `M`, `MB` = × 1,048,576
+
+## Parameter Aggregation
+
+CLI supports parameter aggregation:
+
+```bash
+# These are equivalent
+zstd -b1 -e18 -i1 file.txt
+zstd -b1e18i1 file.txt
+```
