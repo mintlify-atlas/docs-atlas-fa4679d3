@@ -1,0 +1,151 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Zstandard",
+  "projectDescription": "Fast real-time lossless compression algorithm and library",
+  "theme": "aspen",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#1E40AF",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/compression-levels",
+              "concepts/dictionary-training",
+              "concepts/streaming-vs-simple",
+              "concepts/performance"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/basic-usage",
+              "guides/streaming-compression",
+              "guides/dictionary-compression",
+              "guides/multithreading",
+              "guides/advanced-parameters"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "integration/c-cpp",
+              "integration/build-systems",
+              "integration/platform-support",
+              "integration/bindings"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Simple API",
+            "pages": [
+              "api/simple/compression",
+              "api/simple/decompression",
+              "api/simple/helpers"
+            ]
+          },
+          {
+            "group": "Streaming API",
+            "pages": [
+              "api/streaming/compression",
+              "api/streaming/decompression",
+              "api/streaming/context-management"
+            ]
+          },
+          {
+            "group": "Dictionary API",
+            "pages": [
+              "api/dictionary/training",
+              "api/dictionary/compression",
+              "api/dictionary/decompression"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "api/advanced/parameters",
+              "api/advanced/error-handling",
+              "api/advanced/memory-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Tool",
+        "groups": [
+          {
+            "group": "Command Line",
+            "pages": [
+              "cli/overview",
+              "cli/compression",
+              "cli/decompression",
+              "cli/dictionary",
+              "cli/benchmark",
+              "cli/options"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/benchmarks",
+              "resources/format-specification",
+              "resources/contributing",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Fast lossless compression with zlib-level ratios",
+    "Multiple compression levels (1-22) with fast modes",
+    "Dictionary training for small data optimization",
+    "Streaming compression and decompression",
+    "Multithreading support",
+    "CLI tool with multiple format support (.zst, .gz, .xz, .lz4)",
+    "Simple and advanced APIs",
+    "RFC 8878 standardized format"
+  ],
+  "publicApiSurface": [
+    "ZSTD_compress()",
+    "ZSTD_decompress()",
+    "ZSTD_compressStream()",
+    "ZSTD_decompressStream()",
+    "ZSTD_createCCtx()",
+    "ZSTD_createDCtx()",
+    "ZSTD_compress_usingDict()",
+    "ZSTD_decompress_usingDict()",
+    "ZSTD_trainFromBuffer()",
+    "ZSTD_createCDict()",
+    "ZSTD_createDDict()",
+    "ZSTD_compressBound()",
+    "ZSTD_getFrameContentSize()",
+    "ZSTD_isError()",
+    "ZSTD_getErrorName()",
+    "ZSTD_versionNumber()",
+    "ZDICT_trainFromBuffer()",
+    "ZDICT_finalizeDictionary()"
+  ]
+}
