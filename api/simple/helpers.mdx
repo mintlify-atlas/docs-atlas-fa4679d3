@@ -376,6 +376,61 @@ size_t ZSTD_freeDCtx(ZSTD_DCtx* dctx);
 
 ---
 
+## Version Information
+
+### ZSTD_versionNumber()
+
+Returns the runtime library version number.
+
+```c
+unsigned ZSTD_versionNumber(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="unsigned">
+  Returns the version number formatted as: `MAJOR*100*100 + MINOR*100 + RELEASE`.
+</ResponseField>
+
+#### Example
+
+```c
+unsigned version = ZSTD_versionNumber();
+unsigned major = version / 10000;
+unsigned minor = (version / 100) % 100;
+unsigned release = version % 100;
+printf("Zstd version: %u.%u.%u\n", major, minor, release);
+```
+
+---
+
+### ZSTD_versionString()
+
+Returns the runtime library version as a string.
+
+```c
+const char* ZSTD_versionString(void);
+```
+
+#### Return Value
+
+<ResponseField name="return" type="const char*">
+  Returns a pointer to a string containing the version (e.g., "1.6.0").
+</ResponseField>
+
+#### Important Notes
+
+- Requires v1.3.0+
+- The returned string is statically allocated and should not be freed
+
+#### Example
+
+```c
+printf("Using Zstd library version: %s\n", ZSTD_versionString());
+```
+
+---
+
 ## Dictionary Helpers
 
 ### ZSTD_getDictID_fromFrame()
